@@ -28,8 +28,8 @@
 
 /* USER CODE BEGIN 0 */
 #include "main.h"
+#include "lwiperf_example.h"
 #include "tcp_echoserver.h"
-
 /* USER CODE END 0 */
 /* Private function prototypes -----------------------------------------------*/
 /* ETH Variables initialization ----------------------------------------------*/
@@ -91,7 +91,8 @@ void MX_LWIP_Init(void)
   dhcp_start(&gnetif);
 
 /* USER CODE BEGIN 3 */
-  tcp_echoserver_init();
+//  tcp_echoserver_init();
+  lwiperf_example_init();
 /* USER CODE END 3 */
 }
 
