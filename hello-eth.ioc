@@ -1,10 +1,15 @@
 #MicroXplorer Configuration settings - do not modify
+CORTEX_M7.CPU_DCache=Enabled
+CORTEX_M7.CPU_ICache=Enabled
+CORTEX_M7.IPParameters=CPU_DCache,CPU_ICache,PREFETCH_ENABLE
+CORTEX_M7.PREFETCH_ENABLE=1
 ETH.IPParameters=MediaInterface,PHY_Name,PHY_Value,PhyAddress
 ETH.MediaInterface=ETH_MEDIA_INTERFACE_RMII
 ETH.PHY_Name=LAN8742A_PHY_ADDRESS
 ETH.PHY_Value=0
 ETH.PhyAddress=0
 File.Version=6
+GPIO.groupedBy=Group By Peripherals
 KeepUserPlacement=false
 LWIP.GATEWAY_ADDRESS=192.168.137.001
 LWIP.IPParameters=LWIP_DHCP,IP_ADDRESS,NETMASK_ADDRESS,GATEWAY_ADDRESS,LWIP_NETIF_LINK_CALLBACK,LWIP_PERF
