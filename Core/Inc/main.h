@@ -111,7 +111,7 @@ void Error_Handler(void);
 #define LD2_Pin GPIO_PIN_7
 #define LD2_GPIO_Port GPIOB
 /* USER CODE BEGIN Private defines */
-
+#define SERVER_PORT   (80)
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus
