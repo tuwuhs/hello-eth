@@ -117,9 +117,10 @@ void MX_LWIP_Process(void)
 /* USER CODE BEGIN 4_1 */
 /* USER CODE END 4_1 */
   ethernetif_input(&gnetif);
-  ethernetif_set_link(&gnetif);
   
 /* USER CODE BEGIN 4_2 */
+  ethernetif_set_link(&gnetif);
+
   if (dhcp_supplied_address(&gnetif))
   {
     HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_SET);
