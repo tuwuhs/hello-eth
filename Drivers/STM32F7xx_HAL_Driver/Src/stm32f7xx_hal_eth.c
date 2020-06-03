@@ -1891,6 +1891,11 @@ static void ETH_MACDMAConfig(ETH_HandleTypeDef *heth, uint32_t err)
   macinit.VLANTagComparison = ETH_VLANTAGCOMPARISON_16BIT;
   macinit.VLANTagIdentifier = 0x0;
   
+  /*------------------------ ETHERNET Interrupts masks -----------------------*/
+  (heth->Instance)->MACIMR = ETH_MACIMR_TSTIM | ETH_MACIMR_PMTIM;
+  (heth->Instance)->MMCRIMR = ETH_MMCRIMR_RGUFM | ETH_MMCRIMR_RFAEM | ETH_MMCRIMR_RFCEM;
+  (heth->Instance)->MMCTIMR = ETH_MMCTIMR_TGFM | ETH_MMCTIMR_TGFMSCM | ETH_MMCTIMR_TGFSCM;
+
   /*------------------------ ETHERNET MACCR Configuration --------------------*/
   /* Get the ETHERNET MACCR value */
   tmpreg = (heth->Instance)->MACCR;
