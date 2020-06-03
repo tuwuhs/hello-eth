@@ -589,6 +589,42 @@ u32_t sys_now(void)
 
 /* USER CODE END 6 */
 
+/**
+  * @brief  This function sets the netif link status.
+  * @note   This function should be included in the main loop to poll 
+  *         for the link status update  
+  * @param  netif: the network interface
+  * @retval None
+  */
+uint32_t EthernetLinkTimer=0; 
+  
+void ethernetif_set_link(struct netif *netif)
+{
+  uint32_t regvalue = 0;
+  /* Ethernet Link every 200ms */
+  if (HAL_GetTick() - EthernetLinkTimer >= 200)
+  {
+    EthernetLinkTimer = HAL_GetTick(); 
+    
+    /* Read PHY_BSR*/
+    HAL_ETH_ReadPHYRegister(&heth, PHY_BSR, &regvalue);
+    
+    regvalue &= PHY_LINKED_STATUS;
+    
+    /* Check whether the netif link down and the PHY link is up */
+    if(!netif_is_link_up(netif) && (regvalue))
+    {
+      /* network cable is connected */ 
+      netif_set_link_up(netif);        
+    }
+    else if(netif_is_link_up(netif) && (!regvalue))
+    {
+      /* network cable is disconnected */
+      netif_set_link_down(netif);
+    }
+  }
+}
+
 /* USER CODE BEGIN 7 */
 
 /* USER CODE END 7 */
@@ -693,7 +729,16 @@ __weak void ethernetif_notify_conn_changed(struct netif *netif)
   /* NOTE : This is function could be implemented in user file 
             when the callback is needed,
   */
-
+  if (netif_is_link_up(netif))
+  {
+    netif_set_up(netif);
+    dhcp_start(netif);
+  }
+  else
+  {
+    netif_set_down(netif);
+    dhcp_stop(netif);
+  }
 }
 /* USER CODE END 8 */ 
 #endif /* LWIP_NETIF_LINK_CALLBACK */

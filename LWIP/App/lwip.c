@@ -24,8 +24,10 @@
 #if defined ( __CC_ARM )  /* MDK ARM Compiler */
 #include "lwip/sio.h"
 #endif /* MDK ARM Compiler */
+#include "ethernetif.h"
 
 /* USER CODE BEGIN 0 */
+#include "main.h"
 
 /* USER CODE END 0 */
 /* Private function prototypes -----------------------------------------------*/
@@ -79,6 +81,11 @@ void MX_LWIP_Init(void)
     netif_set_down(&gnetif);
   }
 
+  /* Set the link callback function, this function is called on change of link status*/
+  netif_set_link_callback(&gnetif, ethernetif_update_config);
+
+  /* Create the Ethernet link handler thread */
+
   /* Start DHCP negotiation for a network interface (IPv4) */
   dhcp_start(&gnetif);
 
@@ -110,8 +117,27 @@ void MX_LWIP_Process(void)
 /* USER CODE BEGIN 4_1 */
 /* USER CODE END 4_1 */
   ethernetif_input(&gnetif);
+  ethernetif_set_link(&gnetif);
   
 /* USER CODE BEGIN 4_2 */
+  if (dhcp_supplied_address(&gnetif))
+  {
+    HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_SET);
+  }
+  else
+  {
+    HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_RESET);
+  }
+
+  if (netif_is_link_up(&gnetif))
+  {
+    HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
+  }
+  else
+  {
+    HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+  }
+
 /* USER CODE END 4_2 */  
   /* Handle timeouts */
   sys_check_timeouts();
