@@ -298,14 +298,8 @@ static void low_level_init(struct netif *netif)
  *       to become availale since the stack doesn't retry to send a packet
  *       dropped because of memory failure (except for the TCP timers).
  */
-volatile uint32_t cyccnts_in[256];
-volatile uint32_t cyccnts_out[256];
-volatile uint32_t idx = 0;
 static err_t low_level_output(struct netif *netif, struct pbuf *p)
 {
-  idx = (idx + 1) % 256;
-  cyccnts_in[idx] = DWT->CYCCNT;
-
   err_t errval;
   struct pbuf *q;
   uint8_t *buffer = (uint8_t *)(heth.TxDesc->Buffer1Addr);
@@ -378,7 +372,6 @@ error:
     heth.Instance->DMATPDR = 0;
   }
 
-  cyccnts_out[idx] = DWT->CYCCNT;
   return errval;
 }
 
