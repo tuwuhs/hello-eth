@@ -935,11 +935,12 @@ HAL_StatusTypeDef HAL_ETH_TransmitFrame(ETH_HandleTypeDef *heth, uint32_t FrameL
   }
   if (bufcount == 1)
   {
-    /* Set LAST and FIRST segment */
-    heth->TxDesc->Status |=ETH_DMATXDESC_FS|ETH_DMATXDESC_LS;
+    /* Set LAST and FIRST segment, Interrupt on Completion */
+    heth->TxDesc->Status |= ETH_DMATXDESC_FS | ETH_DMATXDESC_LS | ETH_DMATXDESC_IC;
     /* Set frame size */
     heth->TxDesc->ControlBufferSize = (FrameLength & ETH_DMATXDESC_TBS1);
     /* Set Own bit of the Tx descriptor Status: gives the buffer back to ETHERNET DMA */
+    __DMB();
     heth->TxDesc->Status |= ETH_DMATXDESC_OWN;
     /* Point to next descriptor */
     heth->TxDesc= (ETH_DMADescTypeDef *)(heth->TxDesc->Buffer2NextDescAddr);
@@ -948,8 +949,8 @@ HAL_StatusTypeDef HAL_ETH_TransmitFrame(ETH_HandleTypeDef *heth, uint32_t FrameL
   {
     for (i=0; i< bufcount; i++)
     {
-      /* Clear FIRST and LAST segment bits */
-      heth->TxDesc->Status &= ~(ETH_DMATXDESC_FS | ETH_DMATXDESC_LS);
+      /* Clear FIRST and LAST segment, Interrupt on Completion bits */
+      heth->TxDesc->Status &= ~(ETH_DMATXDESC_FS | ETH_DMATXDESC_LS | ETH_DMATXDESC_IC);
       
       if (i == 0) 
       {
@@ -962,13 +963,14 @@ HAL_StatusTypeDef HAL_ETH_TransmitFrame(ETH_HandleTypeDef *heth, uint32_t FrameL
       
       if (i == (bufcount-1))
       {
-        /* Setting the last segment bit */
-        heth->TxDesc->Status |= ETH_DMATXDESC_LS;
+        /* Setting the last segment, Interrupt on Completion bit */
+        heth->TxDesc->Status |= ETH_DMATXDESC_LS | ETH_DMATXDESC_IC;
         size = FrameLength - (bufcount-1)*ETH_TX_BUF_SIZE;
         heth->TxDesc->ControlBufferSize = (size & ETH_DMATXDESC_TBS1);
       }
       
       /* Set Own bit of the Tx descriptor Status: gives the buffer back to ETHERNET DMA */
+      __DMB();
       heth->TxDesc->Status |= ETH_DMATXDESC_OWN;
       /* point to next descriptor */
       heth->TxDesc = (ETH_DMADescTypeDef *)(heth->TxDesc->Buffer2NextDescAddr);
@@ -976,6 +978,7 @@ HAL_StatusTypeDef HAL_ETH_TransmitFrame(ETH_HandleTypeDef *heth, uint32_t FrameL
   }
   
   /* When Tx Buffer unavailable flag is set: clear it and resume transmission */
+  __DMB();
   if (((heth->Instance)->DMASR & ETH_DMASR_TBUS) != (uint32_t)RESET)
   {
     /* Clear TBUS ETHERNET DMA flag */
@@ -1888,6 +1891,11 @@ static void ETH_MACDMAConfig(ETH_HandleTypeDef *heth, uint32_t err)
   macinit.VLANTagComparison = ETH_VLANTAGCOMPARISON_16BIT;
   macinit.VLANTagIdentifier = 0x0;
   
+  /*------------------------ ETHERNET Interrupts masks -----------------------*/
+  (heth->Instance)->MACIMR = ETH_MACIMR_TSTIM | ETH_MACIMR_PMTIM;
+  (heth->Instance)->MMCRIMR = ETH_MMCRIMR_RGUFM | ETH_MMCRIMR_RFAEM | ETH_MMCRIMR_RFCEM;
+  (heth->Instance)->MMCTIMR = ETH_MMCTIMR_TGFM | ETH_MMCTIMR_TGFMSCM | ETH_MMCTIMR_TGFSCM;
+
   /*------------------------ ETHERNET MACCR Configuration --------------------*/
   /* Get the ETHERNET MACCR value */
   tmpreg = (heth->Instance)->MACCR;

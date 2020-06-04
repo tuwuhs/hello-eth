@@ -117,30 +117,14 @@ void MX_LWIP_Init(void)
 void MX_LWIP_Process(void)
 {
 /* USER CODE BEGIN 4_1 */
+  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, (GPIO_PinState) netif_is_link_up(&gnetif));
+  HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, (GPIO_PinState) dhcp_supplied_address(&gnetif));
+
+  ethernetif_set_link(&gnetif);
 /* USER CODE END 4_1 */
   ethernetif_input(&gnetif);
   
 /* USER CODE BEGIN 4_2 */
-  ethernetif_set_link(&gnetif);
-
-  if (dhcp_supplied_address(&gnetif))
-  {
-    HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_SET);
-  }
-  else
-  {
-    HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_RESET);
-  }
-
-  if (netif_is_link_up(&gnetif))
-  {
-    HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
-  }
-  else
-  {
-    HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
-  }
-
 /* USER CODE END 4_2 */  
   /* Handle timeouts */
   sys_check_timeouts();
