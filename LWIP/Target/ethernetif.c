@@ -735,12 +735,10 @@ __weak void ethernetif_notify_conn_changed(struct netif *netif)
   */
   if (netif_is_link_up(netif))
   {
-    netif_set_up(netif);
     dhcp_start(netif);
   }
   else
   {
-    netif_set_down(netif);
     dhcp_stop(netif);
   }
 }
