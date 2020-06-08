@@ -28,7 +28,8 @@
 ENTRY(Reset_Handler)
 
 /* Highest address of the user mode stack */
-_estack = ORIGIN(DTCM) + LENGTH(DTCM);	/* end of "DTCM" Ram type memory */
+/* 8: magic number to make it work, has to do with double-word alignment requirement? */
+_estack = ORIGIN(DTCM) + LENGTH(DTCM) - 8;	/* end of "DTCM" Ram type memory */
 
 _Min_Heap_Size = 0x200 ;	/* required amount of heap  */
 _Min_Stack_Size = 0x400 ;	/* required amount of stack */

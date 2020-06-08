@@ -31,7 +31,7 @@
 
 /* Within 'USER CODE' section, code will be kept by default at each generation */
 /* USER CODE BEGIN 0 */
-
+#include "lwip/dhcp.h"
 /* USER CODE END 0 */
 
 /* Private define ------------------------------------------------------------*/
@@ -330,6 +330,7 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
       {
         /* Copy data to Tx buffer*/
         memcpy( (uint8_t*)((uint8_t*)buffer + bufferoffset), (uint8_t*)((uint8_t*)q->payload + payloadoffset), (ETH_TX_BUF_SIZE - bufferoffset) );
+        SCB_CleanDCache_by_Addr((uint32_t*) buffer, ETH_TX_BUF_SIZE);
       
         /* Point to next descriptor */
         DmaTxDesc = (ETH_DMADescTypeDef *)(DmaTxDesc->Buffer2NextDescAddr);
@@ -351,6 +352,7 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
     
       /* Copy the remaining bytes */
       memcpy( (uint8_t*)((uint8_t*)buffer + bufferoffset), (uint8_t*)((uint8_t*)q->payload + payloadoffset), byteslefttocopy );
+      SCB_CleanDCache_by_Addr((uint32_t*) buffer, ETH_TX_BUF_SIZE);
       bufferoffset = bufferoffset + byteslefttocopy;
       framelength = framelength + byteslefttocopy;
     }
@@ -424,6 +426,7 @@ static struct pbuf * low_level_input(struct netif *netif)
       while( (byteslefttocopy + bufferoffset) > ETH_RX_BUF_SIZE )
       {
         /* Copy data to pbuf */
+        SCB_InvalidateDCache_by_Addr((uint32_t*) buffer, ETH_RX_BUF_SIZE);
         memcpy( (uint8_t*)((uint8_t*)q->payload + payloadoffset), (uint8_t*)((uint8_t*)buffer + bufferoffset), (ETH_RX_BUF_SIZE - bufferoffset));
         
         /* Point to next descriptor */
@@ -435,6 +438,7 @@ static struct pbuf * low_level_input(struct netif *netif)
         bufferoffset = 0;
       }
       /* Copy remaining data in pbuf */
+      SCB_InvalidateDCache_by_Addr((uint32_t*) buffer, ETH_RX_BUF_SIZE);
       memcpy( (uint8_t*)((uint8_t*)q->payload + payloadoffset), (uint8_t*)((uint8_t*)buffer + bufferoffset), byteslefttocopy);
       bufferoffset = bufferoffset + byteslefttocopy;
     }
