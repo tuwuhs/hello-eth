@@ -49,13 +49,13 @@
   #pragma data_alignment=4   
 #endif
 //__ALIGN_BEGIN ETH_DMADescTypeDef  DMARxDscrTab[ETH_RXBUFNB] __ALIGN_END;/* Ethernet Rx MA Descriptor */
-ALIGN_32BYTES(ETH_DMADescTypeDef  DMARxDscrTab[ETH_RXBUFNB]) __attribute__((section(".dtcm_data")));
+ETH_DMADescTypeDef  DMARxDscrTab[ETH_RXBUFNB] __attribute__((section(".dtcm_data")));
 
 #if defined ( __ICCARM__ ) /*!< IAR Compiler */
   #pragma data_alignment=4   
 #endif
 //__ALIGN_BEGIN ETH_DMADescTypeDef  DMATxDscrTab[ETH_TXBUFNB] __ALIGN_END;/* Ethernet Tx DMA Descriptor */
-ALIGN_32BYTES(ETH_DMADescTypeDef  DMATxDscrTab[ETH_TXBUFNB]) __attribute__((section(".dtcm_data")));
+ETH_DMADescTypeDef  DMATxDscrTab[ETH_TXBUFNB] __attribute__((section(".dtcm_data")));
 
 #if defined ( __ICCARM__ ) /*!< IAR Compiler */
   #pragma data_alignment=4   
