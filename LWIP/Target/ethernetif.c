@@ -376,11 +376,13 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
     pbuf_ref(q);
     tx_desc_head->pbuf = q;
 
-    /* Flush cache, set payload */
+    /* Set payload */
     /* TODO: assert q->len < max transfer size */
-    SCB_CleanDCache_by_Addr(q->payload, q->len);
     tx_desc_head->Buffer1Addr = (uint32_t) q->payload;
     tx_desc_head->ControlBufferSize = q->len;
+
+    /* Flush cache, round down the address, round up the length */
+    SCB_CleanDCache_by_Addr((uint32_t*) ((uint32_t)q->payload & ~31), q->len + 31);
 
     /* Check if this is the first or last segment */
     tx_desc_head->Status &= ~(ETH_DMATXDESC_FS | ETH_DMATXDESC_LS);

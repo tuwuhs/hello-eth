@@ -28,7 +28,7 @@
 ENTRY(Reset_Handler)
 
 /* Highest address of the user mode stack */
-_estack = ORIGIN(RAM) + LENGTH(RAM);	/* end of "DTCM" Ram type memory */
+_estack = ORIGIN(DTCM) + LENGTH(DTCM);	/* end of "DTCM" Ram type memory */
 
 _Min_Heap_Size = 0x200 ;	/* required amount of heap  */
 _Min_Stack_Size = 0x400 ;	/* required amount of stack */
@@ -36,7 +36,8 @@ _Min_Stack_Size = 0x400 ;	/* required amount of stack */
 /* Memories definition */
 MEMORY
 {
-  RAM   (xrw)    : ORIGIN = 0x20000000,   LENGTH = 512K
+  DTCM   (xrw)    : ORIGIN = 0x20000000,   LENGTH = 128K
+  RAM    (xrw)    : ORIGIN = 0x20020000,   LENGTH = 384K
   FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 2048K
 }
 
@@ -161,7 +162,7 @@ SECTIONS
     
     . = ALIGN(4);
     _edtcm_data = .;
-  } >RAM AT> FLASH
+  } >DTCM AT> FLASH
 
   /* User_heap_stack section, used to check that there is enough "RAM" Ram  type memory left */
   ._user_heap_stack :
@@ -172,7 +173,7 @@ SECTIONS
     . = . + _Min_Heap_Size;
     . = . + _Min_Stack_Size;
     . = ALIGN(8);
-  } >RAM
+  } >DTCM
 
   /* Remove information from the compiler libraries */
   /DISCARD/ :
