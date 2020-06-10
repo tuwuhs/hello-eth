@@ -382,7 +382,7 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
     tx_desc_head->ControlBufferSize = q->len;
 
     /* Flush cache, round down the address, round up the length */
-    SCB_CleanDCache_by_Addr((uint32_t*) ((uint32_t)q->payload & ~31), q->len + 31);
+    SCB_CleanDCache_by_Addr((uint32_t*) ((uint32_t)q->payload & ~31), q->len + ((uint32_t)q->payload & 31));
 
     /* Check if this is the first or last segment */
     tx_desc_head->Status &= ~(ETH_DMATXDESC_FS | ETH_DMATXDESC_LS);
