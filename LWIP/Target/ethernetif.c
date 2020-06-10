@@ -41,6 +41,26 @@
 #define IFNAME1 't'
 
 /* USER CODE BEGIN 1 */
+struct dma_desc
+{
+  __IO uint32_t Status; /*!< Status */
+  uint32_t ControlBufferSize; /*!< Control and Buffer1, Buffer2 lengths */
+  uint32_t Buffer1Addr; /*!< Buffer1 address pointer */
+  uint32_t Buffer2NextDescAddr; /*!< Buffer2 or next descriptor address pointer */
+
+  /*!< Enhanced Ethernet DMA PTP Descriptors */
+  uint32_t ExtendedStatus; /*!< Extended status for PTP receive descriptor */
+  uint32_t Reserved1; /*!< Reserved */
+  uint32_t TimeStampLow; /*!< Time Stamp Low value for transmit and receive */
+  uint32_t TimeStampHigh; /*!< Time Stamp High value for transmit and receive */
+
+  struct pbuf *pbuf;
+};
+
+struct dma_desc tx_desc[ETH_TXBUFNB] __attribute__((section(".dtcm_data")));
+
+struct dma_desc *tx_desc_head;
+struct dma_desc *tx_desc_tail;
 
 /* USER CODE END 1 */
 
@@ -55,7 +75,7 @@ ETH_DMADescTypeDef DMARxDscrTab[ETH_RXBUFNB] __attribute__((section(".dtcm_data"
   #pragma data_alignment=4   
 #endif
 //__ALIGN_BEGIN ETH_DMADescTypeDef  DMATxDscrTab[ETH_TXBUFNB] __ALIGN_END;/* Ethernet Tx DMA Descriptor */
-ETH_DMADescTypeDef DMATxDscrTab[ETH_TXBUFNB] __attribute__((section(".dtcm_data")));
+//ETH_DMADescTypeDef DMATxDscrTab[ETH_TXBUFNB] __attribute__((section(".dtcm_data")));
 
 #if defined ( __ICCARM__ ) /*!< IAR Compiler */
   #pragma data_alignment=4   
@@ -67,7 +87,7 @@ ALIGN_32BYTES(uint8_t Rx_Buff[ETH_RXBUFNB][ETH_RX_BUF_SIZE]);
   #pragma data_alignment=4   
 #endif
 //__ALIGN_BEGIN uint8_t Tx_Buff[ETH_TXBUFNB][ETH_TX_BUF_SIZE] __ALIGN_END; /* Ethernet Transmit Buffer */
-ALIGN_32BYTES(uint8_t Tx_Buff[ETH_TXBUFNB][ETH_TX_BUF_SIZE]);
+//ALIGN_32BYTES(uint8_t Tx_Buff[ETH_TXBUFNB][ETH_TX_BUF_SIZE]);
 
 /* USER CODE BEGIN 2 */
 
@@ -195,9 +215,9 @@ static void low_level_init(struct netif *netif)
 {
   uint32_t regvalue = 0;
   HAL_StatusTypeDef hal_eth_init_status;
+  size_t i = 0;
 
   /* Init ETH */
-
   uint8_t MACAddr[6];
   heth.Instance = ETH;
   heth.Init.AutoNegotiation = ETH_AUTONEGOTIATION_ENABLE;
@@ -224,8 +244,34 @@ static void low_level_init(struct netif *netif)
     /* Set netif link flag */
     netif->flags |= NETIF_FLAG_LINK_UP;
   }
+
   /* Initialize Tx Descriptors list: Chain Mode */
-  HAL_ETH_DMATxDescListInit(&heth, DMATxDscrTab, &Tx_Buff[0][0], ETH_TXBUFNB);
+//  HAL_ETH_DMATxDescListInit(&heth, DMATxDscrTab, &Tx_Buff[0][0], ETH_TXBUFNB);
+  for (i = 0; i < ETH_TXBUFNB; i++)
+  {
+    /* Set Second Address Chained bit, point to next descriptor */
+    tx_desc[i].Status = ETH_DMATXDESC_TCH;
+    tx_desc[i].Buffer2NextDescAddr = (uint32_t) &tx_desc[(i + 1) % ETH_TXBUFNB];
+
+    /* Zero the other members */
+    tx_desc[i].ControlBufferSize = 0;
+    tx_desc[i].Buffer1Addr = (uint32_t) NULL;
+    tx_desc[i].ExtendedStatus = 0;
+    tx_desc[i].Reserved1 = 0;
+    tx_desc[i].TimeStampLow = 0;
+    tx_desc[i].TimeStampHigh = 0;
+    tx_desc[i].pbuf = NULL;
+
+    if (heth.Init.ChecksumMode == ETH_CHECKSUM_BY_HARDWARE)
+    {
+      /* Set the DMA Tx descriptors checksum insertion */
+      tx_desc[i].Status |= ETH_DMATXDESC_CHECKSUMTCPUDPICMPFULL;
+    }
+  }
+
+  heth.Instance->DMATDLAR = (uint32_t) tx_desc;
+  tx_desc_head = tx_desc;
+  tx_desc_tail = tx_desc;
 
   /* Initialize Rx Descriptors list: Chain Mode  */
   HAL_ETH_DMARxDescListInit(&heth, DMARxDscrTab, &Rx_Buff[0][0], ETH_RXBUFNB);
@@ -299,73 +345,68 @@ static void low_level_init(struct netif *netif)
  */
 static err_t low_level_output(struct netif *netif, struct pbuf *p)
 {
-  err_t errval;
+  err_t err;
   struct pbuf *q;
-  uint8_t *buffer = (uint8_t*) (heth.TxDesc->Buffer1Addr);
-  __IO ETH_DMADescTypeDef *DmaTxDesc;
-  uint32_t framelength = 0;
-  uint32_t bufferoffset = 0;
-  uint32_t byteslefttocopy = 0;
-  uint32_t payloadoffset = 0;
-  DmaTxDesc = heth.TxDesc;
-  bufferoffset = 0;
 
-  /* copy frame from pbufs to driver buffers */
   for (q = p; q != NULL; q = q->next)
   {
-    /* Is this buffer available? If not, goto error */
-    if ((DmaTxDesc->Status & ETH_DMATXDESC_OWN) != (uint32_t) RESET)
+    /* TODO: check head != tail */
+
+    /* TODO: is this the right thing to do? */
+    /* We ran out of descriptor, wait... */
+    while (tx_desc_head->Status & ETH_DMATXDESC_OWN) {};
+//    if (tx_desc_head->Status & ETH_DMATXDESC_OWN)
+//    {
+//      __DMB();
+//      err = ERR_USE;
+//      goto error;
+//    }
+    __DMB();
+
+    /* TODO: assert q->len != 0 */
+
+    /* Make sure pbuf has been freed */
+    if (tx_desc_head->pbuf != NULL)
     {
-      errval = ERR_USE;
-      goto error;
+      pbuf_free(tx_desc_head->pbuf);
+      tx_desc_head->pbuf = NULL;
     }
 
-    /* Get bytes in current lwIP buffer */
-    byteslefttocopy = q->len;
-    payloadoffset = 0;
+    /* Increment reference count and save pbuf for freeing later */
+    pbuf_ref(q);
+    tx_desc_head->pbuf = q;
 
-    /* Check if the length of data to copy is bigger than Tx buffer size*/
-    while ((byteslefttocopy + bufferoffset) > ETH_TX_BUF_SIZE)
-    {
-      /* Copy data to Tx buffer*/
-      memcpy((uint8_t*) ((uint8_t*) buffer + bufferoffset),
-          (uint8_t*) ((uint8_t*) q->payload + payloadoffset),
-          (ETH_TX_BUF_SIZE - bufferoffset));
-      SCB_CleanDCache_by_Addr((uint32_t*) buffer, ETH_TX_BUF_SIZE);
+    /* Flush cache, set payload */
+    /* TODO: assert q->len < max transfer size */
+    SCB_CleanDCache_by_Addr(q->payload, q->len);
+    tx_desc_head->Buffer1Addr = (uint32_t) q->payload;
+    tx_desc_head->ControlBufferSize = q->len;
 
-      /* Point to next descriptor */
-      DmaTxDesc = (ETH_DMADescTypeDef*) (DmaTxDesc->Buffer2NextDescAddr);
+    /* Check if this is the first or last segment */
+    tx_desc_head->Status &= ~(ETH_DMATXDESC_FS | ETH_DMATXDESC_LS);
+    if (q == p)
+      tx_desc_head->Status |= ETH_DMATXDESC_FS;
+    if (q->tot_len == q->len)
+      tx_desc_head->Status |= ETH_DMATXDESC_LS;
 
-      /* Check if the buffer is available */
-      if ((DmaTxDesc->Status & ETH_DMATXDESC_OWN) != (uint32_t) RESET)
-      {
-        errval = ERR_USE;
-        goto error;
-      }
+    __DMB();
+    tx_desc_head->Status |= ETH_DMATXDESC_OWN;
 
-      buffer = (uint8_t*) (DmaTxDesc->Buffer1Addr);
-
-      byteslefttocopy = byteslefttocopy - (ETH_TX_BUF_SIZE - bufferoffset);
-      payloadoffset = payloadoffset + (ETH_TX_BUF_SIZE - bufferoffset);
-      framelength = framelength + (ETH_TX_BUF_SIZE - bufferoffset);
-      bufferoffset = 0;
-    }
-
-    /* Copy the remaining bytes */
-    memcpy((uint8_t*) ((uint8_t*) buffer + bufferoffset),
-        (uint8_t*) ((uint8_t*) q->payload + payloadoffset), byteslefttocopy);
-    SCB_CleanDCache_by_Addr((uint32_t*) buffer, ETH_TX_BUF_SIZE);
-    bufferoffset = bufferoffset + byteslefttocopy;
-    framelength = framelength + byteslefttocopy;
+    tx_desc_head = (struct dma_desc*) tx_desc_head->Buffer2NextDescAddr;
   }
 
-  /* Prepare transmit descriptors to give to DMA */
-  HAL_ETH_TransmitFrame(&heth, framelength);
+  if (heth.Instance->DMASR & ETH_DMASR_TBUS)
+  {
+    /* Clear TBUS ETHERNET DMA flag */
+    heth.Instance->DMASR = ETH_DMASR_TBUS;
 
-  errval = ERR_OK;
+    /* Resume DMA transmission*/
+    heth.Instance->DMATPDR = 0;
+  }
 
-  error:
+  err = ERR_OK;
 
+error:
   /* When Transmit Underflow flag is set, clear it and issue a Transmit Poll Demand to resume transmission */
   if ((heth.Instance->DMASR & ETH_DMASR_TUS) != (uint32_t) RESET)
   {
@@ -376,7 +417,87 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
     heth.Instance->DMATPDR = 0;
   }
 
-  return errval;
+  return err;
+
+//
+//  err_t errval;
+//  struct pbuf *q;
+//  uint8_t *buffer = (uint8_t*) (heth.TxDesc->Buffer1Addr);
+//  __IO ETH_DMADescTypeDef *DmaTxDesc;
+//  uint32_t framelength = 0;
+//  uint32_t bufferoffset = 0;
+//  uint32_t byteslefttocopy = 0;
+//  uint32_t payloadoffset = 0;
+//  DmaTxDesc = heth.TxDesc;
+//  bufferoffset = 0;
+//
+//  /* copy frame from pbufs to driver buffers */
+//  for (q = p; q != NULL; q = q->next)
+//  {
+//    /* Is this buffer available? If not, goto error */
+//    if ((DmaTxDesc->Status & ETH_DMATXDESC_OWN) != (uint32_t) RESET)
+//    {
+//      errval = ERR_USE;
+//      goto error;
+//    }
+//
+//    /* Get bytes in current lwIP buffer */
+//    byteslefttocopy = q->len;
+//    payloadoffset = 0;
+//
+//    /* Check if the length of data to copy is bigger than Tx buffer size*/
+//    while ((byteslefttocopy + bufferoffset) > ETH_TX_BUF_SIZE)
+//    {
+//      /* Copy data to Tx buffer*/
+//      memcpy((uint8_t*) ((uint8_t*) buffer + bufferoffset),
+//          (uint8_t*) ((uint8_t*) q->payload + payloadoffset),
+//          (ETH_TX_BUF_SIZE - bufferoffset));
+//      SCB_CleanDCache_by_Addr((uint32_t*) buffer, ETH_TX_BUF_SIZE);
+//
+//      /* Point to next descriptor */
+//      DmaTxDesc = (ETH_DMADescTypeDef*) (DmaTxDesc->Buffer2NextDescAddr);
+//
+//      /* Check if the buffer is available */
+//      if ((DmaTxDesc->Status & ETH_DMATXDESC_OWN) != (uint32_t) RESET)
+//      {
+//        errval = ERR_USE;
+//        goto error;
+//      }
+//
+//      buffer = (uint8_t*) (DmaTxDesc->Buffer1Addr);
+//
+//      byteslefttocopy = byteslefttocopy - (ETH_TX_BUF_SIZE - bufferoffset);
+//      payloadoffset = payloadoffset + (ETH_TX_BUF_SIZE - bufferoffset);
+//      framelength = framelength + (ETH_TX_BUF_SIZE - bufferoffset);
+//      bufferoffset = 0;
+//    }
+//
+//    /* Copy the remaining bytes */
+//    memcpy((uint8_t*) ((uint8_t*) buffer + bufferoffset),
+//        (uint8_t*) ((uint8_t*) q->payload + payloadoffset), byteslefttocopy);
+//    SCB_CleanDCache_by_Addr((uint32_t*) buffer, ETH_TX_BUF_SIZE);
+//    bufferoffset = bufferoffset + byteslefttocopy;
+//    framelength = framelength + byteslefttocopy;
+//  }
+//
+//  /* Prepare transmit descriptors to give to DMA */
+//  HAL_ETH_TransmitFrame(&heth, framelength);
+//
+//  errval = ERR_OK;
+//
+//  error:
+//
+//  /* When Transmit Underflow flag is set, clear it and issue a Transmit Poll Demand to resume transmission */
+//  if ((heth.Instance->DMASR & ETH_DMASR_TUS) != (uint32_t) RESET)
+//  {
+//    /* Clear TUS ETHERNET DMA flag */
+//    heth.Instance->DMASR = ETH_DMASR_TUS;
+//
+//    /* Resume DMA transmission*/
+//    heth.Instance->DMATPDR = 0;
+//  }
+//
+//  return errval;
 }
 
 /**
@@ -485,6 +606,27 @@ void ethernetif_input(struct netif *netif)
 {
   err_t err;
   struct pbuf *p;
+
+  /* Clean-up TX pbuf */
+  do
+  {
+    if (tx_desc_tail->Status & ETH_DMATXDESC_OWN) break;
+    if (tx_desc_tail->pbuf != NULL)
+    {
+      pbuf_free(tx_desc_tail->pbuf);
+      tx_desc_tail->pbuf = NULL;
+    }
+    tx_desc_tail = (struct dma_desc*) tx_desc_tail->Buffer2NextDescAddr;
+  } while (tx_desc_tail != tx_desc_head);
+
+//  for (size_t i = 0; i < ETH_TXBUFNB; i++)
+//  {
+//    if (!(tx_desc[i].Status & ETH_DMATXDESC_OWN) && tx_desc[i].pbuf != NULL)
+//    {
+//      pbuf_free(tx_desc[i].pbuf);
+//      tx_desc[i].pbuf = NULL;
+//    }
+//  }
 
   /* move received packet into a new pbuf */
   p = low_level_input(netif);
@@ -706,7 +848,7 @@ void ethernetif_update_config(struct netif *netif)
     }
     else /* AutoNegotiation Disable */
     {
-      error:
+error:
       /* Check parameters */
       assert_param(IS_ETH_SPEED(heth.Init.Speed));
       assert_param(IS_ETH_DUPLEX_MODE(heth.Init.DuplexMode));
