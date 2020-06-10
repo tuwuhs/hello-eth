@@ -74,7 +74,7 @@ struct pbuf* rx_pbuf_chain;
   #pragma data_alignment=4   
 #endif
 //__ALIGN_BEGIN ETH_DMADescTypeDef  DMARxDscrTab[ETH_RXBUFNB] __ALIGN_END;/* Ethernet Rx MA Descriptor */
-ETH_DMADescTypeDef DMARxDscrTab[ETH_RXBUFNB] __attribute__((section(".dtcm_data")));
+//ETH_DMADescTypeDef DMARxDscrTab[ETH_RXBUFNB] __attribute__((section(".dtcm_data")));
 
 #if defined ( __ICCARM__ ) /*!< IAR Compiler */
   #pragma data_alignment=4   
@@ -86,7 +86,7 @@ ETH_DMADescTypeDef DMARxDscrTab[ETH_RXBUFNB] __attribute__((section(".dtcm_data"
   #pragma data_alignment=4   
 #endif
 //__ALIGN_BEGIN uint8_t Rx_Buff[ETH_RXBUFNB][ETH_RX_BUF_SIZE] __ALIGN_END; /* Ethernet Receive Buffer */
-ALIGN_32BYTES(uint8_t Rx_Buff[ETH_RXBUFNB][ETH_RX_BUF_SIZE]);
+//ALIGN_32BYTES(uint8_t Rx_Buff[ETH_RXBUFNB][ETH_RX_BUF_SIZE]);
 
 #if defined ( __ICCARM__ ) /*!< IAR Compiler */
   #pragma data_alignment=4   
@@ -206,6 +206,32 @@ void HAL_ETH_MspDeInit(ETH_HandleTypeDef *ethHandle)
 
 /* USER CODE END 4 */
 
+static void rx_pbuf_alloc(void)
+{
+  while (!(rx_desc_tail->Status & ETH_DMARXDESC_OWN) && (rx_desc_tail->pbuf == NULL))
+  {
+    /* Round down PBUF_POOL_BUFSIZE to multiple of 4 bytes */
+    rx_desc_tail->pbuf = pbuf_alloc(PBUF_RAW, PBUF_POOL_BUFSIZE, PBUF_POOL);
+
+    if (rx_desc_tail->pbuf == NULL)
+    {
+      /* Allocation error (out of memory?), stop here */
+      rx_desc_tail->Buffer1Addr = 0;
+      break;
+    }
+
+    rx_desc_tail->Buffer1Addr = (uint32_t) rx_desc_tail->pbuf->payload;
+
+    __DMB();
+    rx_desc_tail->Status |= ETH_DMARXDESC_OWN;
+
+    rx_desc_tail = (struct dma_desc*) rx_desc_tail->Buffer2NextDescAddr;
+  }
+
+  /* Re-arm RX DMA (poll demand) */
+  heth.Instance->DMARPDR = 0;
+}
+
 /*******************************************************************************
  LL Driver Interface ( LwIP stack --> ETH)
  *******************************************************************************/
@@ -258,7 +284,7 @@ static void low_level_init(struct netif *netif)
     tx_desc[i].Status = ETH_DMATXDESC_TCH;
     tx_desc[i].Buffer2NextDescAddr = (uint32_t) &tx_desc[(i + 1) % ETH_TXBUFNB];
 
-    /* Zero the other members */
+    /* Set the rest to zero */
     tx_desc[i].ControlBufferSize = 0;
     tx_desc[i].Buffer1Addr = (uint32_t) NULL;
     tx_desc[i].ExtendedStatus = 0;
@@ -267,45 +293,47 @@ static void low_level_init(struct netif *netif)
     tx_desc[i].TimeStampHigh = 0;
     tx_desc[i].pbuf = NULL;
 
+    /* Set the DMA Tx descriptors checksum insertion */
     if (heth.Init.ChecksumMode == ETH_CHECKSUM_BY_HARDWARE)
     {
-      /* Set the DMA Tx descriptors checksum insertion */
       tx_desc[i].Status |= ETH_DMATXDESC_CHECKSUMTCPUDPICMPFULL;
     }
   }
 
-  heth.Instance->DMATDLAR = (uint32_t) tx_desc;
   tx_desc_head = tx_desc;
   tx_desc_tail = tx_desc;
+
+  heth.Instance->DMATDLAR = (uint32_t) tx_desc;
 
   /* Initialize Rx Descriptors list: Chain Mode  */
 //  HAL_ETH_DMARxDescListInit(&heth, DMARxDscrTab, &Rx_Buff[0][0], ETH_RXBUFNB);
   for (i = 0; i < ETH_RXBUFNB; i++)
   {
-    /* Set Second Address Chained bit, disable interrupt, point to next descriptor */
-    rx_desc[i].ControlBufferSize = ETH_DMARXDESC_RCH | ETH_DMARXDESC_DIC;
+    /* Set Second Address Chained bit, disable interrupt */
+    /* Size equals to pbuf pool buffer size */
+    rx_desc[i].ControlBufferSize = ETH_DMARXDESC_RCH | ETH_DMARXDESC_DIC | (PBUF_POOL_BUFSIZE & ~4);
+
+    /* Point to next descriptor */
     rx_desc[i].Buffer2NextDescAddr = (uint32_t) &rx_desc[(i + 1) % ETH_RXBUFNB];
 
-    /* Pre-allocate pbuf from pool, point descriptor to it */
-    /* Round down PBUF_POOL_BUFSIZE to multiple of 4 bytes */
-    /* TODO: assert pbuf != NULL */
-    rx_desc[i].pbuf = pbuf_alloc(PBUF_RAW, PBUF_POOL_BUFSIZE, PBUF_POOL);
-    rx_desc[i].ControlBufferSize |= (PBUF_POOL_BUFSIZE & ~4);
-    rx_desc[i].Buffer1Addr = (uint32_t) rx_desc[i].pbuf->payload;
-
+    /* Set the rest to zero */
+    rx_desc[i].Buffer1Addr = 0;
     rx_desc[i].ExtendedStatus = 0;
     rx_desc[i].Reserved1 = 0;
     rx_desc[i].TimeStampLow = 0;
     rx_desc[i].TimeStampHigh = 0;
-
-    rx_desc[i].Status = ETH_DMARXDESC_OWN;
+    rx_desc[i].Status = 0;
+    rx_desc[i].pbuf = NULL;
   }
 
-  heth.Instance->DMARDLAR = (uint32_t) rx_desc;
   rx_desc_head = rx_desc;
   rx_desc_tail = rx_desc;
-
   rx_pbuf_chain = NULL;
+
+  /* Pre-allocate pbuf */
+  rx_pbuf_alloc();
+
+  heth.Instance->DMARDLAR = (uint32_t) rx_desc;
 
 #if LWIP_ARP || LWIP_ETHERNET 
 
@@ -381,7 +409,7 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
 
   for (q = p; q != NULL; q = q->next)
   {
-    /* TODO: check head != tail */
+    /* TODO: check head != tail ? */
 
     /* TODO: is this the right thing to do? */
     /* We ran out of descriptor, wait... */
@@ -546,59 +574,51 @@ static struct pbuf* low_level_input(struct netif *netif)
   uint32_t frame_length = 0;
   struct pbuf* ret = NULL;
 
-  if (rx_desc_head->Status & ETH_DMARXDESC_OWN) return NULL;
-  __DMB();
-
-  /* Determine frame length */
-  if (rx_desc_head->Status & ETH_DMARXDESC_LS)
+  while (!(rx_desc_head->Status & ETH_DMARXDESC_OWN))
   {
-    /* Last frame: use FL field, subtract 4 bytes for the CRC */
-    frame_length = ((rx_desc_head->Status & ETH_DMARXDESC_FL) >> ETH_DMARXDESC_FRAMELENGTHSHIFT) - 4;
-  }
-  else
-  {
-    /* Not last frame: length is equal to buffer size */
-    frame_length = rx_desc_head->ControlBufferSize & ETH_DMARXDESC_RBS1;
-  }
-  rx_desc_head->pbuf->len = frame_length;
-  rx_desc_head->pbuf->tot_len = frame_length;
-
-  /* Compose pbuf chain */
-  if (rx_desc_head->Status & ETH_DMARXDESC_FS)
-  {
-    /* First frame in a chain: take over reference */
-    rx_pbuf_chain = rx_desc_head->pbuf;
-  }
-  else
-  {
-    /* Intermediate or last frame: concatenate (chain and give up reference) */
-    pbuf_cat(rx_pbuf_chain, rx_desc_head->pbuf);
-  }
-
-  /* We don't own pbuf anymore at this point */
-  rx_desc_head->pbuf = NULL;
-
-  /* If last descriptor return with the completed chain */
-  if (rx_desc_head->Status & ETH_DMARXDESC_LS)
-  {
-    ret = rx_pbuf_chain;
-  }
-
-  /* pbuf consumed, go to the next */
-  rx_desc_head = (struct dma_desc*) rx_desc_head->Buffer2NextDescAddr;
-
-  /* Re-allocate pbuf */
-  while ((rx_desc_tail != rx_desc_head) && !(rx_desc_tail->Status & ETH_DMARXDESC_OWN))
-  {
-    rx_desc_tail->pbuf = pbuf_alloc(PBUF_RAW, PBUF_POOL_BUFSIZE, PBUF_POOL);
-    /* TODO: assert pbuf != NULL */
-
-    rx_desc_tail->Buffer1Addr = (uint32_t) rx_desc_tail->pbuf->payload;
-
+//  if (rx_desc_head->Status & ETH_DMARXDESC_OWN) return NULL;
     __DMB();
-    rx_desc_tail->Status |= ETH_DMARXDESC_OWN;
 
-    rx_desc_tail = (struct dma_desc*) rx_desc_tail->Buffer2NextDescAddr;
+    /* Determine frame length */
+    if (rx_desc_head->Status & ETH_DMARXDESC_LS)
+    {
+      /* Last frame: use FL field, subtract 4 bytes for the CRC */
+      frame_length = ((rx_desc_head->Status & ETH_DMARXDESC_FL)
+          >> ETH_DMARXDESC_FRAMELENGTHSHIFT) - 4;
+    }
+    else
+    {
+      /* Not last frame: length is equal to buffer size */
+      frame_length = rx_desc_head->ControlBufferSize & ETH_DMARXDESC_RBS1;
+    }
+    rx_desc_head->pbuf->len = frame_length;
+    rx_desc_head->pbuf->tot_len = frame_length;
+
+    /* Compose pbuf chain */
+    if (rx_desc_head->Status & ETH_DMARXDESC_FS)
+    {
+      /* First frame in a chain: take over reference */
+      rx_pbuf_chain = rx_desc_head->pbuf;
+    }
+    else
+    {
+      /* Intermediate or last frame: concatenate (chain and give up reference) */
+      pbuf_cat(rx_pbuf_chain, rx_desc_head->pbuf);
+    }
+
+    /* We don't own pbuf anymore at this point */
+    rx_desc_head->pbuf = NULL;
+
+    /* Last frame: return with the complete chain */
+    if (rx_desc_head->Status & ETH_DMARXDESC_LS)
+    {
+      ret = rx_pbuf_chain;
+    }
+
+    /* pbuf consumed, go to the next */
+    rx_desc_head = (struct dma_desc*) rx_desc_head->Buffer2NextDescAddr;
+
+    if (ret) break;
   }
 
   return ret;
@@ -709,13 +729,11 @@ void ethernetif_input(struct netif *netif)
   /* Clean-up TX pbuf */
   while (!(tx_desc_tail->Status & ETH_DMATXDESC_OWN))
   {
-    if (tx_desc_tail->pbuf != NULL)
-    {
-      pbuf_free(tx_desc_tail->pbuf);
-      tx_desc_tail->pbuf = NULL;
-    }
+    if (tx_desc_tail->pbuf == NULL) break;
 
-    if (tx_desc_tail == tx_desc_head) break;
+    pbuf_free(tx_desc_tail->pbuf);
+    tx_desc_tail->pbuf = NULL;
+
     tx_desc_tail = (struct dma_desc*) tx_desc_tail->Buffer2NextDescAddr;
   }
 
@@ -732,18 +750,20 @@ void ethernetif_input(struct netif *netif)
   p = low_level_input(netif);
 
   /* no packet could be read, silently ignore this */
-  if (p == NULL)
-    return;
-
-  /* entry point to the LwIP stack */
-  err = netif->input(p, netif);
-
-  if (err != ERR_OK)
+  if (p != NULL)
   {
-    LWIP_DEBUGF(NETIF_DEBUG, ("ethernetif_input: IP input error\n"));
-    pbuf_free(p);
-    p = NULL;
+    /* entry point to the LwIP stack */
+    err = netif->input(p, netif);
+
+    if (err != ERR_OK)
+    {
+      LWIP_DEBUGF(NETIF_DEBUG, ("ethernetif_input: IP input error\n"));
+      pbuf_free(p);
+      p = NULL;
+    }
   }
+
+  rx_pbuf_alloc();
 }
 
 #if !LWIP_ARP
