@@ -610,16 +610,17 @@ void ethernetif_input(struct netif *netif)
   struct pbuf *p;
 
   /* Clean-up TX pbuf */
-  do
+  while (!(tx_desc_tail->Status & ETH_DMATXDESC_OWN))
   {
-    if (tx_desc_tail->Status & ETH_DMATXDESC_OWN) break;
     if (tx_desc_tail->pbuf != NULL)
     {
       pbuf_free(tx_desc_tail->pbuf);
       tx_desc_tail->pbuf = NULL;
     }
+
+    if (tx_desc_tail == tx_desc_head) break;
     tx_desc_tail = (struct dma_desc*) tx_desc_tail->Buffer2NextDescAddr;
-  } while (tx_desc_tail != tx_desc_head);
+  }
 
 //  for (size_t i = 0; i < ETH_TXBUFNB; i++)
 //  {
