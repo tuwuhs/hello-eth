@@ -376,7 +376,6 @@ static void low_level_init(struct netif *netif)
  */
 static err_t low_level_output(struct netif *netif, struct pbuf *p)
 {
-  err_t err;
   struct pbuf *q;
 
   for (q = p; q != NULL; q = q->next)
@@ -471,6 +470,9 @@ static struct pbuf* low_level_input(struct netif *netif)
       /* Not last frame: length is equal to buffer size */
       frame_length = rx_desc_head->ControlBufferSize & ETH_DMARXDESC_RBS1;
     }
+    SCB_InvalidateDCache_by_Addr((uint32_t*) ((uint32_t)rx_desc_head->pbuf->payload & ~31),
+        frame_length + ((uint32_t)rx_desc_head->pbuf->payload & 31));
+
     rx_desc_head->pbuf->len = frame_length;
     rx_desc_head->pbuf->tot_len = frame_length;
 
@@ -548,6 +550,7 @@ void ethernetif_input(struct netif *netif)
     }
   }
 
+  /* Re-allocate RX pbuf */
   rx_pbuf_alloc();
 }
 
