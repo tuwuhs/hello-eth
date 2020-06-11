@@ -579,6 +579,10 @@ static struct pbuf* low_level_input(struct netif *netif)
 //  if (rx_desc_head->Status & ETH_DMARXDESC_OWN) return NULL;
     __DMB();
 
+    /* Buffer does not exist, bail out */
+    if (rx_desc_head->pbuf == NULL)
+      break;
+
     /* Determine frame length */
     if (rx_desc_head->Status & ETH_DMARXDESC_LS)
     {
@@ -729,11 +733,13 @@ void ethernetif_input(struct netif *netif)
   /* Clean-up TX pbuf */
   while (!(tx_desc_tail->Status & ETH_DMATXDESC_OWN))
   {
-    if (tx_desc_tail->pbuf == NULL) break;
+    if (tx_desc_tail->pbuf != NULL)
+    {
+      pbuf_free(tx_desc_tail->pbuf);
+      tx_desc_tail->pbuf = NULL;
+    }
 
-    pbuf_free(tx_desc_tail->pbuf);
-    tx_desc_tail->pbuf = NULL;
-
+    if (tx_desc_tail == tx_desc_head) break;
     tx_desc_tail = (struct dma_desc*) tx_desc_tail->Buffer2NextDescAddr;
   }
 
