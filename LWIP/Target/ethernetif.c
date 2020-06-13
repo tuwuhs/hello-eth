@@ -225,17 +225,25 @@ static void low_level_init(struct netif *netif)
   HAL_StatusTypeDef hal_eth_init_status;
   size_t i = 0;
 
+  /* 96-bit unique ID */
+  uint32_t uid0 = HAL_GetUIDw0();
+  uint32_t uid1 = HAL_GetUIDw1();
+  uint32_t uid2 = HAL_GetUIDw2();
+
   /* Init ETH */
   uint8_t MACAddr[6];
   heth.Instance = ETH;
   heth.Init.AutoNegotiation = ETH_AUTONEGOTIATION_ENABLE;
   heth.Init.PhyAddress = LAN8742A_PHY_ADDRESS;
+
+  /* STMicro OUI, pseudo-unique NIC from 96-bit UID */
   MACAddr[0] = 0x00;
   MACAddr[1] = 0x80;
   MACAddr[2] = 0xE1;
-  MACAddr[3] = 0x00;
-  MACAddr[4] = 0x00;
-  MACAddr[5] = 0x00;
+  MACAddr[3] = (uid0 & 0xFF) ^ ((uid0 >> 8) & 0xFF) ^ ((uid0 >> 16) & 0xFF) ^ ((uid0 >> 24) & 0xFF);
+  MACAddr[4] = (uid1 & 0xFF) ^ ((uid1 >> 8) & 0xFF) ^ ((uid1 >> 16) & 0xFF) ^ ((uid1 >> 24) & 0xFF);
+  MACAddr[5] = (uid2 & 0xFF) ^ ((uid2 >> 8) & 0xFF) ^ ((uid2 >> 16) & 0xFF) ^ ((uid2 >> 24) & 0xFF);
+
   heth.Init.MACAddr = &MACAddr[0];
   heth.Init.RxMode = ETH_RXPOLLING_MODE;
   heth.Init.ChecksumMode = ETH_CHECKSUM_BY_HARDWARE;
