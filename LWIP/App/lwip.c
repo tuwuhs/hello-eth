@@ -133,6 +133,18 @@ void MX_LWIP_Process(void)
 /* USER CODE END 4_3 */
 }
 
+void ethernetif_notify_conn_changed(struct netif *netif)
+{
+  if (netif_is_link_up(netif))
+  {
+    dhcp_start(netif);
+  }
+  else
+  {
+    dhcp_stop(netif);
+  }
+}
+
 #if defined ( __CC_ARM )  /* MDK ARM Compiler */
 /**
  * Opens a serial device for communication.

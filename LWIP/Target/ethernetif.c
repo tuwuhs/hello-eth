@@ -185,11 +185,11 @@ void HAL_ETH_MspDeInit(ETH_HandleTypeDef *ethHandle)
 
 static void rx_pbuf_alloc(void)
 {
-  while (!(rx_desc_tail->Status & ETH_DMARXDESC_OWN) && (rx_desc_tail->pbuf == NULL))
+  while (rx_desc_tail->pbuf == NULL)
   {
-    /* Round down PBUF_POOL_BUFSIZE to multiple of 4 bytes */
-    rx_desc_tail->pbuf = pbuf_alloc(PBUF_RAW, PBUF_POOL_BUFSIZE, PBUF_POOL);
+    /* TODO: assert not OWN (or force clear?) */
 
+    rx_desc_tail->pbuf = pbuf_alloc(PBUF_RAW, PBUF_POOL_BUFSIZE, PBUF_POOL);
     if (rx_desc_tail->pbuf == NULL)
     {
       /* Allocation error (out of memory?), stop here */
@@ -199,6 +199,7 @@ static void rx_pbuf_alloc(void)
 
     rx_desc_tail->Buffer1Addr = (uint32_t) rx_desc_tail->pbuf->payload;
 
+    /* OWN bit is set only when allocation succeeds, that is pbuf != NULL */
     __DMB();
     rx_desc_tail->Status |= ETH_DMARXDESC_OWN;
 
@@ -293,6 +294,7 @@ static void low_level_init(struct netif *netif)
   {
     /* Set Second Address Chained bit, disable interrupt */
     /* Size equals to pbuf pool buffer size */
+    /* Round down PBUF_POOL_BUFSIZE to multiple of 4 bytes */
     rx_desc[i].ControlBufferSize = ETH_DMARXDESC_RCH | ETH_DMARXDESC_DIC | (PBUF_POOL_BUFSIZE & ~4);
 
     /* Point to next descriptor */
@@ -390,7 +392,7 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
   {
     /* TODO: check head != tail ? */
 
-    /* We ran out of descriptor, wait... */
+    /* Ran out of descriptor? Just wait... */
     while (tx_desc_head->Status & ETH_DMATXDESC_OWN) {};
     __DMB();
 
@@ -531,6 +533,7 @@ void ethernetif_input(struct netif *netif)
   /* Clean-up TX pbuf */
   while (!(tx_desc_tail->Status & ETH_DMATXDESC_OWN))
   {
+    __DMB();
     if (tx_desc_tail->pbuf != NULL)
     {
       pbuf_free(tx_desc_tail->pbuf);
@@ -801,14 +804,6 @@ __weak void ethernetif_notify_conn_changed(struct netif *netif)
   /* NOTE : This is function could be implemented in user file 
    when the callback is needed,
    */
-  if (netif_is_link_up(netif))
-  {
-    dhcp_start(netif);
-  }
-  else
-  {
-    dhcp_stop(netif);
-  }
 }
 /* USER CODE END 8 */
 #endif /* LWIP_NETIF_LINK_CALLBACK */
