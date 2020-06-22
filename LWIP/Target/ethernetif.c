@@ -387,6 +387,8 @@ static void low_level_init(struct netif *netif)
 static err_t low_level_output(struct netif *netif, struct pbuf *p)
 {
   struct pbuf *q;
+  uint32_t status = 0;
+  struct dma_desc* first = tx_desc_head;
 
   for (q = p; q != NULL; q = q->next)
   {
@@ -395,6 +397,8 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
     /* Ran out of descriptor? Just wait... */
     while (tx_desc_head->Status & ETH_DMATXDESC_OWN) {};
     __DMB();
+
+    status = tx_desc_head->Status;
 
     /* TODO: assert q->len != 0 */
 
@@ -418,17 +422,27 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
     SCB_CleanDCache_by_Addr((uint32_t*) ((uint32_t)q->payload & ~31), q->len + ((uint32_t)q->payload & 31));
 
     /* Check if this is the first or last segment */
-    tx_desc_head->Status &= ~(ETH_DMATXDESC_FS | ETH_DMATXDESC_LS);
+    /* Set OWN bit for all segments except the first, to make sure that */
+    /*   all descriptors are ready before starting the DMA transfer */
+    status &= ~(ETH_DMATXDESC_FS | ETH_DMATXDESC_LS);
     if (q == p)
-      tx_desc_head->Status |= ETH_DMATXDESC_FS;
-    if (q->tot_len == q->len)
-      tx_desc_head->Status |= ETH_DMATXDESC_LS;
+      status |= ETH_DMATXDESC_FS;
+    else
+      status |= ETH_DMATXDESC_OWN;
 
-    __DMB();
-    tx_desc_head->Status |= ETH_DMATXDESC_OWN;
+    if (q->next == NULL)
+      status |= ETH_DMATXDESC_LS;
+
+    tx_desc_head->Status = status;
 
     tx_desc_head = (struct dma_desc*) tx_desc_head->Buffer2NextDescAddr;
   }
+
+  /* Set OWN bit for the first segment to start the DMA transfer */
+  status = first->Status;
+  status |= ETH_DMATXDESC_OWN;
+  __DMB();
+  first->Status = status;
 
   /* Clear TBUS ETHERNET DMA flag, and resume DMA transmission */
   if (heth.Instance->DMASR & ETH_DMASR_TBUS)
