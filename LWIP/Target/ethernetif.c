@@ -185,24 +185,25 @@ void HAL_ETH_MspDeInit(ETH_HandleTypeDef *ethHandle)
 
 static void rx_pbuf_alloc(void)
 {
-  while (!(rx_desc_tail->Status & ETH_DMARXDESC_OWN) && (rx_desc_tail->pbuf == NULL))
+  while (rx_desc_head->pbuf == NULL)
   {
-    /* Round down PBUF_POOL_BUFSIZE to multiple of 4 bytes */
-    rx_desc_tail->pbuf = pbuf_alloc(PBUF_RAW, PBUF_POOL_BUFSIZE, PBUF_POOL);
+    /* TODO: assert not OWN (or force clear?) */
 
-    if (rx_desc_tail->pbuf == NULL)
+    rx_desc_head->pbuf = pbuf_alloc(PBUF_RAW, PBUF_POOL_BUFSIZE, PBUF_POOL);
+    if (rx_desc_head->pbuf == NULL)
     {
       /* Allocation error (out of memory?), stop here */
-      rx_desc_tail->Buffer1Addr = 0;
+      rx_desc_head->Buffer1Addr = 0;
       break;
     }
 
-    rx_desc_tail->Buffer1Addr = (uint32_t) rx_desc_tail->pbuf->payload;
+    rx_desc_head->Buffer1Addr = (uint32_t) rx_desc_head->pbuf->payload;
 
+    /* OWN bit is set only when allocation succeeds, that is pbuf != NULL */
     __DMB();
-    rx_desc_tail->Status |= ETH_DMARXDESC_OWN;
+    rx_desc_head->Status |= ETH_DMARXDESC_OWN;
 
-    rx_desc_tail = (struct dma_desc*) rx_desc_tail->Buffer2NextDescAddr;
+    rx_desc_head = (struct dma_desc*) rx_desc_head->Buffer2NextDescAddr;
   }
 
   /* Re-arm RX DMA (poll demand) */
@@ -225,17 +226,25 @@ static void low_level_init(struct netif *netif)
   HAL_StatusTypeDef hal_eth_init_status;
   size_t i = 0;
 
+  /* 96-bit unique ID */
+  uint32_t uid0 = HAL_GetUIDw0();
+  uint32_t uid1 = HAL_GetUIDw1();
+  uint32_t uid2 = HAL_GetUIDw2();
+
   /* Init ETH */
   uint8_t MACAddr[6];
   heth.Instance = ETH;
   heth.Init.AutoNegotiation = ETH_AUTONEGOTIATION_ENABLE;
   heth.Init.PhyAddress = LAN8742A_PHY_ADDRESS;
+
+  /* STMicro OUI, pseudo-unique NIC from 96-bit UID */
   MACAddr[0] = 0x00;
   MACAddr[1] = 0x80;
   MACAddr[2] = 0xE1;
-  MACAddr[3] = 0x00;
-  MACAddr[4] = 0x00;
-  MACAddr[5] = 0x00;
+  MACAddr[3] = (uid0 & 0xFF) ^ ((uid0 >> 8) & 0xFF) ^ ((uid0 >> 16) & 0xFF) ^ ((uid0 >> 24) & 0xFF);
+  MACAddr[4] = (uid1 & 0xFF) ^ ((uid1 >> 8) & 0xFF) ^ ((uid1 >> 16) & 0xFF) ^ ((uid1 >> 24) & 0xFF);
+  MACAddr[5] = (uid2 & 0xFF) ^ ((uid2 >> 8) & 0xFF) ^ ((uid2 >> 16) & 0xFF) ^ ((uid2 >> 24) & 0xFF);
+
   heth.Init.MACAddr = &MACAddr[0];
   heth.Init.RxMode = ETH_RXPOLLING_MODE;
   heth.Init.ChecksumMode = ETH_CHECKSUM_BY_HARDWARE;
@@ -285,6 +294,7 @@ static void low_level_init(struct netif *netif)
   {
     /* Set Second Address Chained bit, disable interrupt */
     /* Size equals to pbuf pool buffer size */
+    /* Round down PBUF_POOL_BUFSIZE to multiple of 4 bytes */
     rx_desc[i].ControlBufferSize = ETH_DMARXDESC_RCH | ETH_DMARXDESC_DIC | (PBUF_POOL_BUFSIZE & ~4);
 
     /* Point to next descriptor */
@@ -301,8 +311,8 @@ static void low_level_init(struct netif *netif)
   }
 
   /* Pre-allocate pbuf */
-  rx_desc_head = rx_desc;
   rx_desc_tail = rx_desc;
+  rx_desc_head = rx_desc;
   rx_pbuf_alloc();
   rx_pbuf_chain = NULL;
   heth.Instance->DMARDLAR = (uint32_t) rx_desc;
@@ -377,12 +387,15 @@ static void low_level_init(struct netif *netif)
 static err_t low_level_output(struct netif *netif, struct pbuf *p)
 {
   struct pbuf *q;
+  uint32_t status = 0;
+  struct dma_desc* first_desc = tx_desc_head;
+  uint32_t next_is_first = 1;
 
   for (q = p; q != NULL; q = q->next)
   {
     /* TODO: check head != tail ? */
 
-    /* We ran out of descriptor, wait... */
+    /* Ran out of descriptor? Just wait... */
     while (tx_desc_head->Status & ETH_DMATXDESC_OWN) {};
     __DMB();
 
@@ -393,9 +406,15 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
     {
       pbuf_free(tx_desc_head->pbuf);
       tx_desc_head->pbuf = NULL;
+
+      /* Update tail if we stole its clean-up job */
+      if (tx_desc_head == tx_desc_tail)
+      {
+        tx_desc_tail = tx_desc_head;
+      }
     }
 
-    /* Increment reference count and save pbuf for freeing later */
+    /* Increment reference count and save pbuf for freeing */
     pbuf_ref(q);
     tx_desc_head->pbuf = q;
 
@@ -404,34 +423,60 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
     tx_desc_head->Buffer1Addr = (uint32_t) q->payload;
     tx_desc_head->ControlBufferSize = q->len;
 
-    /* Flush cache, round down the address, round up the length */
-    SCB_CleanDCache_by_Addr((uint32_t*) ((uint32_t)q->payload & ~31), q->len + ((uint32_t)q->payload & 31));
+    /* Flush cache: round down the address, round up the length */
+    SCB_CleanDCache_by_Addr((uint32_t*) ((uint32_t)q->payload & ~31),
+        q->len + ((uint32_t)q->payload & 31));
 
-    /* Check if this is the first or last segment */
-    tx_desc_head->Status &= ~(ETH_DMATXDESC_FS | ETH_DMATXDESC_LS);
-    if (q == p)
-      tx_desc_head->Status |= ETH_DMATXDESC_FS;
-    if (q->tot_len == q->len)
-      tx_desc_head->Status |= ETH_DMATXDESC_LS;
+    /* Read TDES0, clear first and last bits */
+    status = tx_desc_head->Status;
+    status &= ~(ETH_DMATXDESC_FS | ETH_DMATXDESC_LS);
 
-    __DMB();
-    tx_desc_head->Status |= ETH_DMATXDESC_OWN;
+    /* Check if this is the first segment in a chain */
+    /* Set OWN bit for all segments except the first, to make sure that */
+    /*   all descriptors are ready before starting the DMA transfer */
+    if (next_is_first)
+      status |= ETH_DMATXDESC_FS;
+    else
+      status |= ETH_DMATXDESC_OWN;
 
+    /* If this is the last segment in a chain, next pbuf is a new chain */
+    /* in the queue (if not NULL) */
+    if (q->len == q->tot_len)
+    {
+      status |= ETH_DMATXDESC_LS;
+      next_is_first = 1;
+    }
+    else
+    {
+      next_is_first = 0;
+    }
+
+    /* Write TDES0, point to next descriptor */
+    tx_desc_head->Status = status;
     tx_desc_head = (struct dma_desc*) tx_desc_head->Buffer2NextDescAddr;
-  }
 
-  /* Clear TBUS ETHERNET DMA flag, and resume DMA transmission */
-  if (heth.Instance->DMASR & ETH_DMASR_TBUS)
-  {
-    heth.Instance->DMASR = ETH_DMASR_TBUS;
-    heth.Instance->DMATPDR = 0;
-  }
+    if (next_is_first)
+    {
+      /* Set OWN bit for the first segment to start the DMA transfer */
+      status = first_desc->Status;
+      status |= ETH_DMATXDESC_OWN;
+      __DMB();
+      first_desc->Status = status;
 
-  /* When Transmit Underflow flag is set, clear it and issue a Transmit Poll Demand to resume transmission */
-  if ((heth.Instance->DMASR & ETH_DMASR_TUS) != (uint32_t) RESET)
-  {
-    heth.Instance->DMASR = ETH_DMASR_TUS;
-    heth.Instance->DMATPDR = 0;
+      /* Clear TBUS ETHERNET DMA flag, and resume DMA transmission */
+      if (heth.Instance->DMASR & ETH_DMASR_TBUS)
+      {
+        heth.Instance->DMASR = ETH_DMASR_TBUS;
+        heth.Instance->DMATPDR = 0;
+      }
+
+      /* When Transmit Underflow flag is set, clear it, and resume DMA transmission */
+      if (heth.Instance->DMASR & ETH_DMASR_TUS)
+      {
+        heth.Instance->DMASR = ETH_DMASR_TUS;
+        heth.Instance->DMATPDR = 0;
+      }
+    }
   }
 
   return ERR_OK;
@@ -450,55 +495,55 @@ static struct pbuf* low_level_input(struct netif *netif)
   uint32_t frame_length = 0;
   struct pbuf* ret = NULL;
 
-  while (!(rx_desc_head->Status & ETH_DMARXDESC_OWN))
+  while (!(rx_desc_tail->Status & ETH_DMARXDESC_OWN))
   {
     __DMB();
 
     /* Buffer does not exist, bail out */
-    if (rx_desc_head->pbuf == NULL)
+    if (rx_desc_tail->pbuf == NULL)
       break;
 
     /* Determine frame length */
-    if (rx_desc_head->Status & ETH_DMARXDESC_LS)
+    if (rx_desc_tail->Status & ETH_DMARXDESC_LS)
     {
       /* Last frame: use FL field, subtract 4 bytes for the CRC */
-      frame_length = ((rx_desc_head->Status & ETH_DMARXDESC_FL)
+      frame_length = ((rx_desc_tail->Status & ETH_DMARXDESC_FL)
           >> ETH_DMARXDESC_FRAMELENGTHSHIFT) - 4;
     }
     else
     {
       /* Not last frame: length is equal to buffer size */
-      frame_length = rx_desc_head->ControlBufferSize & ETH_DMARXDESC_RBS1;
+      frame_length = rx_desc_tail->ControlBufferSize & ETH_DMARXDESC_RBS1;
     }
-    SCB_InvalidateDCache_by_Addr((uint32_t*) ((uint32_t)rx_desc_head->pbuf->payload & ~31),
-        frame_length + ((uint32_t)rx_desc_head->pbuf->payload & 31));
+    SCB_InvalidateDCache_by_Addr((uint32_t*) ((uint32_t)rx_desc_tail->pbuf->payload & ~31),
+        frame_length + ((uint32_t)rx_desc_tail->pbuf->payload & 31));
 
-    rx_desc_head->pbuf->len = frame_length;
-    rx_desc_head->pbuf->tot_len = frame_length;
+    rx_desc_tail->pbuf->len = frame_length;
+    rx_desc_tail->pbuf->tot_len = frame_length;
 
     /* Compose pbuf chain */
-    if (rx_desc_head->Status & ETH_DMARXDESC_FS)
+    if (rx_desc_tail->Status & ETH_DMARXDESC_FS)
     {
       /* First frame in a chain: take over reference */
-      rx_pbuf_chain = rx_desc_head->pbuf;
+      rx_pbuf_chain = rx_desc_tail->pbuf;
     }
     else
     {
       /* Intermediate or last frame: concatenate (chain and give up reference) */
-      pbuf_cat(rx_pbuf_chain, rx_desc_head->pbuf);
+      pbuf_cat(rx_pbuf_chain, rx_desc_tail->pbuf);
     }
 
     /* We don't own pbuf anymore at this point */
-    rx_desc_head->pbuf = NULL;
+    rx_desc_tail->pbuf = NULL;
 
     /* Last frame: return with the complete chain */
-    if (rx_desc_head->Status & ETH_DMARXDESC_LS)
+    if (rx_desc_tail->Status & ETH_DMARXDESC_LS)
     {
       ret = rx_pbuf_chain;
     }
 
     /* pbuf consumed, go to the next descriptor */
-    rx_desc_head = (struct dma_desc*) rx_desc_head->Buffer2NextDescAddr;
+    rx_desc_tail = (struct dma_desc*) rx_desc_tail->Buffer2NextDescAddr;
 
     if (ret) break;
   }
@@ -523,6 +568,7 @@ void ethernetif_input(struct netif *netif)
   /* Clean-up TX pbuf */
   while (!(tx_desc_tail->Status & ETH_DMATXDESC_OWN))
   {
+    __DMB();
     if (tx_desc_tail->pbuf != NULL)
     {
       pbuf_free(tx_desc_tail->pbuf);
@@ -793,14 +839,6 @@ __weak void ethernetif_notify_conn_changed(struct netif *netif)
   /* NOTE : This is function could be implemented in user file 
    when the callback is needed,
    */
-  if (netif_is_link_up(netif))
-  {
-    dhcp_start(netif);
-  }
-  else
-  {
-    dhcp_stop(netif);
-  }
 }
 /* USER CODE END 8 */
 #endif /* LWIP_NETIF_LINK_CALLBACK */
