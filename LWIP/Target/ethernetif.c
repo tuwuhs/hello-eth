@@ -185,25 +185,25 @@ void HAL_ETH_MspDeInit(ETH_HandleTypeDef *ethHandle)
 
 static void rx_pbuf_alloc(void)
 {
-  while (rx_desc_tail->pbuf == NULL)
+  while (rx_desc_head->pbuf == NULL)
   {
     /* TODO: assert not OWN (or force clear?) */
 
-    rx_desc_tail->pbuf = pbuf_alloc(PBUF_RAW, PBUF_POOL_BUFSIZE, PBUF_POOL);
-    if (rx_desc_tail->pbuf == NULL)
+    rx_desc_head->pbuf = pbuf_alloc(PBUF_RAW, PBUF_POOL_BUFSIZE, PBUF_POOL);
+    if (rx_desc_head->pbuf == NULL)
     {
       /* Allocation error (out of memory?), stop here */
-      rx_desc_tail->Buffer1Addr = 0;
+      rx_desc_head->Buffer1Addr = 0;
       break;
     }
 
-    rx_desc_tail->Buffer1Addr = (uint32_t) rx_desc_tail->pbuf->payload;
+    rx_desc_head->Buffer1Addr = (uint32_t) rx_desc_head->pbuf->payload;
 
     /* OWN bit is set only when allocation succeeds, that is pbuf != NULL */
     __DMB();
-    rx_desc_tail->Status |= ETH_DMARXDESC_OWN;
+    rx_desc_head->Status |= ETH_DMARXDESC_OWN;
 
-    rx_desc_tail = (struct dma_desc*) rx_desc_tail->Buffer2NextDescAddr;
+    rx_desc_head = (struct dma_desc*) rx_desc_head->Buffer2NextDescAddr;
   }
 
   /* Re-arm RX DMA (poll demand) */
@@ -311,8 +311,8 @@ static void low_level_init(struct netif *netif)
   }
 
   /* Pre-allocate pbuf */
-  rx_desc_head = rx_desc;
   rx_desc_tail = rx_desc;
+  rx_desc_head = rx_desc;
   rx_pbuf_alloc();
   rx_pbuf_chain = NULL;
   heth.Instance->DMARDLAR = (uint32_t) rx_desc;
@@ -480,55 +480,55 @@ static struct pbuf* low_level_input(struct netif *netif)
   uint32_t frame_length = 0;
   struct pbuf* ret = NULL;
 
-  while (!(rx_desc_head->Status & ETH_DMARXDESC_OWN))
+  while (!(rx_desc_tail->Status & ETH_DMARXDESC_OWN))
   {
     __DMB();
 
     /* Buffer does not exist, bail out */
-    if (rx_desc_head->pbuf == NULL)
+    if (rx_desc_tail->pbuf == NULL)
       break;
 
     /* Determine frame length */
-    if (rx_desc_head->Status & ETH_DMARXDESC_LS)
+    if (rx_desc_tail->Status & ETH_DMARXDESC_LS)
     {
       /* Last frame: use FL field, subtract 4 bytes for the CRC */
-      frame_length = ((rx_desc_head->Status & ETH_DMARXDESC_FL)
+      frame_length = ((rx_desc_tail->Status & ETH_DMARXDESC_FL)
           >> ETH_DMARXDESC_FRAMELENGTHSHIFT) - 4;
     }
     else
     {
       /* Not last frame: length is equal to buffer size */
-      frame_length = rx_desc_head->ControlBufferSize & ETH_DMARXDESC_RBS1;
+      frame_length = rx_desc_tail->ControlBufferSize & ETH_DMARXDESC_RBS1;
     }
-    SCB_InvalidateDCache_by_Addr((uint32_t*) ((uint32_t)rx_desc_head->pbuf->payload & ~31),
-        frame_length + ((uint32_t)rx_desc_head->pbuf->payload & 31));
+    SCB_InvalidateDCache_by_Addr((uint32_t*) ((uint32_t)rx_desc_tail->pbuf->payload & ~31),
+        frame_length + ((uint32_t)rx_desc_tail->pbuf->payload & 31));
 
-    rx_desc_head->pbuf->len = frame_length;
-    rx_desc_head->pbuf->tot_len = frame_length;
+    rx_desc_tail->pbuf->len = frame_length;
+    rx_desc_tail->pbuf->tot_len = frame_length;
 
     /* Compose pbuf chain */
-    if (rx_desc_head->Status & ETH_DMARXDESC_FS)
+    if (rx_desc_tail->Status & ETH_DMARXDESC_FS)
     {
       /* First frame in a chain: take over reference */
-      rx_pbuf_chain = rx_desc_head->pbuf;
+      rx_pbuf_chain = rx_desc_tail->pbuf;
     }
     else
     {
       /* Intermediate or last frame: concatenate (chain and give up reference) */
-      pbuf_cat(rx_pbuf_chain, rx_desc_head->pbuf);
+      pbuf_cat(rx_pbuf_chain, rx_desc_tail->pbuf);
     }
 
     /* We don't own pbuf anymore at this point */
-    rx_desc_head->pbuf = NULL;
+    rx_desc_tail->pbuf = NULL;
 
     /* Last frame: return with the complete chain */
-    if (rx_desc_head->Status & ETH_DMARXDESC_LS)
+    if (rx_desc_tail->Status & ETH_DMARXDESC_LS)
     {
       ret = rx_pbuf_chain;
     }
 
     /* pbuf consumed, go to the next descriptor */
-    rx_desc_head = (struct dma_desc*) rx_desc_head->Buffer2NextDescAddr;
+    rx_desc_tail = (struct dma_desc*) rx_desc_tail->Buffer2NextDescAddr;
 
     if (ret) break;
   }
