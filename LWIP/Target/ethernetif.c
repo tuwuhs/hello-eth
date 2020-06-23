@@ -407,6 +407,12 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
     {
       pbuf_free(tx_desc_head->pbuf);
       tx_desc_head->pbuf = NULL;
+
+      /* Update tail if we stole its clean-up job */
+      if (tx_desc_head == tx_desc_tail)
+      {
+        tx_desc_tail = tx_desc_head;
+      }
     }
 
     /* Increment reference count and save pbuf for freeing later */
