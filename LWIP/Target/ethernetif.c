@@ -388,7 +388,8 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
 {
   struct pbuf *q;
   uint32_t status = 0;
-  struct dma_desc* first = tx_desc_head;
+  struct dma_desc* first_desc = tx_desc_head;
+  uint32_t next_is_first = 1;
 
   for (q = p; q != NULL; q = q->next)
   {
@@ -397,8 +398,6 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
     /* Ran out of descriptor? Just wait... */
     while (tx_desc_head->Status & ETH_DMATXDESC_OWN) {};
     __DMB();
-
-    status = tx_desc_head->Status;
 
     /* TODO: assert q->len != 0 */
 
@@ -415,7 +414,7 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
       }
     }
 
-    /* Increment reference count and save pbuf for freeing later */
+    /* Increment reference count and save pbuf for freeing */
     pbuf_ref(q);
     tx_desc_head->pbuf = q;
 
@@ -424,44 +423,60 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
     tx_desc_head->Buffer1Addr = (uint32_t) q->payload;
     tx_desc_head->ControlBufferSize = q->len;
 
-    /* Flush cache, round down the address, round up the length */
-    SCB_CleanDCache_by_Addr((uint32_t*) ((uint32_t)q->payload & ~31), q->len + ((uint32_t)q->payload & 31));
+    /* Flush cache: round down the address, round up the length */
+    SCB_CleanDCache_by_Addr((uint32_t*) ((uint32_t)q->payload & ~31),
+        q->len + ((uint32_t)q->payload & 31));
 
-    /* Check if this is the first or last segment */
+    /* Read TDES0, clear first and last bits */
+    status = tx_desc_head->Status;
+    status &= ~(ETH_DMATXDESC_FS | ETH_DMATXDESC_LS);
+
+    /* Check if this is the first segment in a chain */
     /* Set OWN bit for all segments except the first, to make sure that */
     /*   all descriptors are ready before starting the DMA transfer */
-    status &= ~(ETH_DMATXDESC_FS | ETH_DMATXDESC_LS);
-    if (q == p)
+    if (next_is_first)
       status |= ETH_DMATXDESC_FS;
     else
       status |= ETH_DMATXDESC_OWN;
 
-    if (q->next == NULL)
+    /* If this is the last segment in a chain, next pbuf is a new chain */
+    /* in the queue (if not NULL) */
+    if (q->len == q->tot_len)
+    {
       status |= ETH_DMATXDESC_LS;
+      next_is_first = 1;
+    }
+    else
+    {
+      next_is_first = 0;
+    }
 
+    /* Write TDES0, point to next descriptor */
     tx_desc_head->Status = status;
-
     tx_desc_head = (struct dma_desc*) tx_desc_head->Buffer2NextDescAddr;
-  }
 
-  /* Set OWN bit for the first segment to start the DMA transfer */
-  status = first->Status;
-  status |= ETH_DMATXDESC_OWN;
-  __DMB();
-  first->Status = status;
+    if (next_is_first)
+    {
+      /* Set OWN bit for the first segment to start the DMA transfer */
+      status = first_desc->Status;
+      status |= ETH_DMATXDESC_OWN;
+      __DMB();
+      first_desc->Status = status;
 
-  /* Clear TBUS ETHERNET DMA flag, and resume DMA transmission */
-  if (heth.Instance->DMASR & ETH_DMASR_TBUS)
-  {
-    heth.Instance->DMASR = ETH_DMASR_TBUS;
-    heth.Instance->DMATPDR = 0;
-  }
+      /* Clear TBUS ETHERNET DMA flag, and resume DMA transmission */
+      if (heth.Instance->DMASR & ETH_DMASR_TBUS)
+      {
+        heth.Instance->DMASR = ETH_DMASR_TBUS;
+        heth.Instance->DMATPDR = 0;
+      }
 
-  /* When Transmit Underflow flag is set, clear it and issue a Transmit Poll Demand to resume transmission */
-  if ((heth.Instance->DMASR & ETH_DMASR_TUS) != (uint32_t) RESET)
-  {
-    heth.Instance->DMASR = ETH_DMASR_TUS;
-    heth.Instance->DMATPDR = 0;
+      /* When Transmit Underflow flag is set, clear it, and resume DMA transmission */
+      if (heth.Instance->DMASR & ETH_DMASR_TUS)
+      {
+        heth.Instance->DMASR = ETH_DMASR_TUS;
+        heth.Instance->DMATPDR = 0;
+      }
+    }
   }
 
   return ERR_OK;
