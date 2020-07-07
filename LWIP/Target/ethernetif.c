@@ -1,23 +1,4 @@
-/**
- ******************************************************************************
- * File Name          : ethernetif.c
- * Description        : This file provides code for the configuration
- *                      of the Target/ethernetif.c MiddleWare.
- ******************************************************************************
- * @attention
- *
- * <h2><center>&copy; Copyright (c) 2020 STMicroelectronics.
- * All rights reserved.</center></h2>
- *
- * This software component is licensed by ST under Ultimate Liberty license
- * SLA0044, the "License"; You may not use this file except in compliance with
- * the License. You may obtain a copy of the License at:
- *                             www.st.com/SLA0044
- *
- ******************************************************************************
- */
 
-/* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "lwip/opt.h"
 #include "lwip/mem.h"
@@ -30,9 +11,6 @@
 #include "ethernetif.h"
 #include <string.h>
 
-/* Private define ------------------------------------------------------------*/
-
-/* Network interface name */
 #define IFNAME0 's'
 #define IFNAME1 't'
 
@@ -62,12 +40,7 @@ struct dma_desc *rx_desc_tail;
 
 struct pbuf* rx_pbuf_chain;
 
-/* Private variables ---------------------------------------------------------*/
-
-/* Global Ethernet handle */
 ETH_HandleTypeDef heth;
-
-/* Private functions ---------------------------------------------------------*/
 
 void HAL_ETH_MspInit(ETH_HandleTypeDef *ethHandle)
 {
@@ -177,9 +150,6 @@ static void rx_pbuf_alloc(void)
   heth.Instance->DMARPDR = 0;
 }
 
-/*******************************************************************************
- LL Driver Interface ( LwIP stack --> ETH)
- *******************************************************************************/
 /**
  * In this function, the hardware should be initialized.
  * Called from ethernetif_init().
@@ -784,6 +754,4 @@ __weak void ethernetif_notify_conn_changed(struct netif *netif)
    */
 }
 #endif /* LWIP_NETIF_LINK_CALLBACK */
-
-/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
 
