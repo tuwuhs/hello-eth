@@ -26,13 +26,9 @@
 #include "netif/ethernet.h"
 #include "netif/etharp.h"
 #include "lwip/ethip6.h"
+#include "lwip/dhcp.h"
 #include "ethernetif.h"
 #include <string.h>
-
-/* Within 'USER CODE' section, code will be kept by default at each generation */
-/* USER CODE BEGIN 0 */
-#include "lwip/dhcp.h"
-/* USER CODE END 0 */
 
 /* Private define ------------------------------------------------------------*/
 
@@ -40,7 +36,6 @@
 #define IFNAME0 's'
 #define IFNAME1 't'
 
-/* USER CODE BEGIN 1 */
 struct dma_desc
 {
   __IO uint32_t Status; /*!< Status */
@@ -67,20 +62,10 @@ struct dma_desc *rx_desc_tail;
 
 struct pbuf* rx_pbuf_chain;
 
-/* USER CODE END 1 */
-
 /* Private variables ---------------------------------------------------------*/
-
-/* USER CODE BEGIN 2 */
-
-/* USER CODE END 2 */
 
 /* Global Ethernet handle */
 ETH_HandleTypeDef heth;
-
-/* USER CODE BEGIN 3 */
-
-/* USER CODE END 3 */
 
 /* Private functions ---------------------------------------------------------*/
 
@@ -89,9 +74,6 @@ void HAL_ETH_MspInit(ETH_HandleTypeDef *ethHandle)
   GPIO_InitTypeDef GPIO_InitStruct = { 0 };
   if (ethHandle->Instance == ETH)
   {
-    /* USER CODE BEGIN ETH_MspInit 0 */
-
-    /* USER CODE END ETH_MspInit 0 */
     /* Enable Peripheral clock */
     __HAL_RCC_ETH_CLK_ENABLE();
 
@@ -137,10 +119,6 @@ void HAL_ETH_MspInit(ETH_HandleTypeDef *ethHandle)
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
     GPIO_InitStruct.Alternate = GPIO_AF11_ETH;
     HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
-
-    /* USER CODE BEGIN ETH_MspInit 1 */
-
-    /* USER CODE END ETH_MspInit 1 */
   }
 }
 
@@ -148,9 +126,6 @@ void HAL_ETH_MspDeInit(ETH_HandleTypeDef *ethHandle)
 {
   if (ethHandle->Instance == ETH)
   {
-    /* USER CODE BEGIN ETH_MspDeInit 0 */
-
-    /* USER CODE END ETH_MspDeInit 0 */
     /* Peripheral clock disable */
     __HAL_RCC_ETH_CLK_DISABLE();
 
@@ -172,16 +147,8 @@ void HAL_ETH_MspDeInit(ETH_HandleTypeDef *ethHandle)
     HAL_GPIO_DeInit(RMII_TXD1_GPIO_Port, RMII_TXD1_Pin);
 
     HAL_GPIO_DeInit(GPIOG, RMII_TX_EN_Pin | RMII_TXD0_Pin);
-
-    /* USER CODE BEGIN ETH_MspDeInit 1 */
-
-    /* USER CODE END ETH_MspDeInit 1 */
   }
 }
-
-/* USER CODE BEGIN 4 */
-
-/* USER CODE END 4 */
 
 static void rx_pbuf_alloc(void)
 {
@@ -232,12 +199,14 @@ static void low_level_init(struct netif *netif)
   uint32_t uid2 = HAL_GetUIDw2();
 
   /* Init ETH */
-  uint8_t MACAddr[6];
   heth.Instance = ETH;
   heth.Init.AutoNegotiation = ETH_AUTONEGOTIATION_ENABLE;
+//  heth.Init.Speed = ETH_SPEED_100M;
+//  heth.Init.DuplexMode = ETH_MODE_FULLDUPLEX;
   heth.Init.PhyAddress = LAN8742A_PHY_ADDRESS;
 
   /* STMicro OUI, pseudo-unique NIC from 96-bit UID */
+  uint8_t MACAddr[6];
   MACAddr[0] = 0x00;
   MACAddr[1] = 0x80;
   MACAddr[2] = 0xE1;
@@ -249,10 +218,6 @@ static void low_level_init(struct netif *netif)
   heth.Init.RxMode = ETH_RXPOLLING_MODE;
   heth.Init.ChecksumMode = ETH_CHECKSUM_BY_HARDWARE;
   heth.Init.MediaInterface = ETH_MEDIA_INTERFACE_RMII;
-
-  /* USER CODE BEGIN MACADDRESS */
-
-  /* USER CODE END MACADDRESS */
 
   hal_eth_init_status = HAL_ETH_Init(&heth);
 
@@ -338,15 +303,11 @@ static void low_level_init(struct netif *netif)
 #if LWIP_ARP
   netif->flags |= NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP;
 #else
-    netif->flags |= NETIF_FLAG_BROADCAST;
-  #endif /* LWIP_ARP */
+  netif->flags |= NETIF_FLAG_BROADCAST;
+#endif /* LWIP_ARP */
 
   /* Enable MAC and DMA transmission and reception */
   HAL_ETH_Start(&heth);
-
-  /* USER CODE BEGIN PHY_PRE_CONFIG */
-
-  /* USER CODE END PHY_PRE_CONFIG */
 
   /* Read Register Configuration */
   HAL_ETH_ReadPHYRegister(&heth, PHY_ISFR, &regvalue);
@@ -358,15 +319,7 @@ static void low_level_init(struct netif *netif)
   /* Read Register Configuration */
   HAL_ETH_ReadPHYRegister(&heth, PHY_ISFR, &regvalue);
 
-  /* USER CODE BEGIN PHY_POST_CONFIG */
-
-  /* USER CODE END PHY_POST_CONFIG */
-
 #endif /* LWIP_ARP || LWIP_ETHERNET */
-
-  /* USER CODE BEGIN LOW_LEVEL_INIT */
-
-  /* USER CODE END LOW_LEVEL_INIT */
 }
 
 /**
@@ -612,10 +565,6 @@ static err_t low_level_output_arp_off(struct netif *netif, struct pbuf *q, const
   err_t errval;
   errval = ERR_OK;
     
-/* USER CODE BEGIN 5 */ 
-    
-/* USER CODE END 5 */  
-    
   return errval;
   
 }
@@ -672,8 +621,6 @@ err_t ethernetif_init(struct netif *netif)
   return ERR_OK;
 }
 
-/* USER CODE BEGIN 6 */
-
 /**
  * @brief  Returns the current time in milliseconds
  *         when LWIP_TIMERS == 1 and NO_SYS == 1
@@ -695,8 +642,6 @@ u32_t sys_now(void)
 {
   return HAL_GetTick();
 }
-
-/* USER CODE END 6 */
 
 /**
  * @brief  This function sets the netif link status.
@@ -734,10 +679,6 @@ void ethernetif_set_link(struct netif *netif)
   }
 }
 
-/* USER CODE BEGIN 7 */
-
-/* USER CODE END 7 */
-
 #if LWIP_NETIF_LINK_CALLBACK
 /**
  * @brief  Link callback function, this function is called on change of link status
@@ -752,12 +693,9 @@ void ethernetif_update_config(struct netif *netif)
 
   if (netif_is_link_up(netif))
   {
-    /* Restart the auto-negotiation */
-    if (heth.Init.AutoNegotiation != ETH_AUTONEGOTIATION_DISABLE)
+    HAL_ETH_ReadPHYRegister(&heth, PHY_BCR, &regvalue);
+    if (regvalue & PHY_AUTONEGOTIATION)
     {
-      /* Enable Auto-Negotiation */
-      HAL_ETH_WritePHYRegister(&heth, PHY_BCR, PHY_AUTONEGOTIATION);
-
       /* Get tick */
       tickstart = HAL_GetTick();
 
@@ -807,7 +745,7 @@ error:
       assert_param(IS_ETH_SPEED(heth.Init.Speed));
       assert_param(IS_ETH_DUPLEX_MODE(heth.Init.DuplexMode));
 
-      /* Set MAC Speed and Duplex Mode to PHY */
+      /* Set MAC Speed and Duplex Mode to PHY, disable auto-negotiation */
       HAL_ETH_WritePHYRegister(&heth, PHY_BCR,
           ((uint16_t) (heth.Init.DuplexMode >> 3)
               | (uint16_t) (heth.Init.Speed >> 1)));
@@ -821,6 +759,12 @@ error:
   }
   else
   {
+    if (heth.Init.AutoNegotiation != ETH_AUTONEGOTIATION_DISABLE)
+    {
+      /* Re-enable Auto-Negotiation */
+      HAL_ETH_WritePHYRegister(&heth, PHY_BCR, PHY_AUTONEGOTIATION);
+    }
+
     /* Stop MAC interface */
     HAL_ETH_Stop(&heth);
   }
@@ -828,7 +772,6 @@ error:
   ethernetif_notify_conn_changed(netif);
 }
 
-/* USER CODE BEGIN 8 */
 /**
  * @brief  This function notify user about link status changement.
  * @param  netif: the network interface
@@ -840,11 +783,7 @@ __weak void ethernetif_notify_conn_changed(struct netif *netif)
    when the callback is needed,
    */
 }
-/* USER CODE END 8 */
 #endif /* LWIP_NETIF_LINK_CALLBACK */
 
-/* USER CODE BEGIN 9 */
-
-/* USER CODE END 9 */
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
 
