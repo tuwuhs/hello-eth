@@ -60,6 +60,7 @@ static HAL_StatusTypeDef phy_read(ETH_HandleTypeDef *heth, uint16_t regaddr, uin
 static HAL_StatusTypeDef phy_write(ETH_HandleTypeDef *heth, uint16_t regaddr, uint32_t regvalue);
 static void init_mac_and_dma(ETH_HandleTypeDef *heth);
 static void set_mac_addr(ETH_HandleTypeDef *heth, uint32_t macAddr, uint8_t *addr);
+static void reconfigure_mac(ETH_HandleTypeDef *heth);
 
 void HAL_ETH_MspInit(ETH_HandleTypeDef *ethHandle)
 {
@@ -699,8 +700,7 @@ error:
               | (uint16_t) (heth.Init.Speed >> 1)));
     }
 
-    /* Reconfigure MAC */
-    HAL_ETH_ConfigMAC(&heth, (ETH_MACInitTypeDef*) NULL);
+    reconfigure_mac(&heth);
 
     eth_start(&heth);
   }
@@ -808,7 +808,6 @@ static HAL_StatusTypeDef phy_read(ETH_HandleTypeDef *heth, uint16_t regaddr, uin
   tmpreg |= (((uint32_t) regaddr << ETH_MACMIIAR_MR_Pos) & ETH_MACMIIAR_MR_Msk);
   tmpreg &= ~ETH_MACMIIAR_MW;
   tmpreg |= ETH_MACMIIAR_MB;
-
   heth->Instance->MACMIIAR = tmpreg;
 
   /* Wait until completed */
@@ -850,8 +849,6 @@ static HAL_StatusTypeDef phy_write(ETH_HandleTypeDef *heth, uint16_t regaddr, ui
   tmpreg |= (((uint32_t) regaddr << ETH_MACMIIAR_MR_Pos) & ETH_MACMIIAR_MR_Msk);
   tmpreg |= ETH_MACMIIAR_MW;
   tmpreg |= ETH_MACMIIAR_MB;
-
-  /* Write the result value into the MII Address register */
   heth->Instance->MACMIIAR = tmpreg;
 
   /* Wait until completed */
@@ -916,27 +913,19 @@ static HAL_StatusTypeDef eth_init(ETH_HandleTypeDef *heth)
   /* Set CR bits depending on hclk value */
   tempreg = (heth->Instance)->MACMIIAR;
   tempreg &= ~ETH_MACMIIAR_CR_Msk;
+
   hclk = HAL_RCC_GetHCLKFreq();
   if (hclk < 35000000)
-  {
     tempreg |= ETH_MACMIIAR_CR_Div16;
-  }
   else if (hclk < 60000000)
-  {
     tempreg |= ETH_MACMIIAR_CR_Div26;
-  }
   else if (hclk < 100000000)
-  {
     tempreg |= ETH_MACMIIAR_CR_Div42;
-  }
   else if (hclk < 150000000)
-  {
     tempreg |= ETH_MACMIIAR_CR_Div62;
-  }
   else
-  {
     tempreg |= ETH_MACMIIAR_CR_Div102;
-  }
+
   (heth->Instance)->MACMIIAR = (uint32_t)tempreg;
 
   /* Reset PHY */
@@ -984,25 +973,24 @@ static void init_mac_and_dma(ETH_HandleTypeDef *heth)
 {
   uint32_t tmpreg = 0;
 
+  /* Errata 2.16.5 (see top): need to wait then rewrite for some registers */
+
   /* Disable unused interrupts */
   (heth->Instance)->MACIMR = ETH_MACIMR_TSTIM | ETH_MACIMR_PMTIM;
   (heth->Instance)->MMCRIMR = ETH_MMCRIMR_RGUFM | ETH_MMCRIMR_RFAEM | ETH_MMCRIMR_RFCEM;
   (heth->Instance)->MMCTIMR = ETH_MMCTIMR_TGFM | ETH_MMCTIMR_TGFMSCM | ETH_MMCTIMR_TGFSCM;
 
+  /* Enable checksum offload, disable retry transmission */
   tmpreg = (heth->Instance)->MACCR;
   tmpreg &= ETH_MACCR_CLEAR_MASK; /* Clear WD, PCE, PS, TE and RE bits */
-  tmpreg |= (ETH_CHECKSUMOFFLAOD_ENABLE | ETH_RETRYTRANSMISSION_DISABLE | (heth->Init).Speed | (heth->Init).DuplexMode);
+  tmpreg |= (ETH_MACCR_IPCO | ETH_MACCR_RD | (heth->Init).Speed | (heth->Init).DuplexMode);
   (heth->Instance)->MACCR = (uint32_t) tmpreg;
-
-  /* Errata 2.16.5 (see top) */
   tmpreg = (heth->Instance)->MACCR;
   HAL_Delay(ETH_REG_WRITE_DELAY);
   (heth->Instance)->MACCR = tmpreg;
 
-
-  heth->Instance->MACFFR = (ETH_PASSCONTROLFRAMES_BLOCKALL);
-
-  /* Errata 2.16.5 (see top) */
+  /* Block all control frames */
+  heth->Instance->MACFFR = ETH_MACFFR_PCF_BlockAll;
   tmpreg = (heth->Instance)->MACFFR;
   HAL_Delay(ETH_REG_WRITE_DELAY);
   (heth->Instance)->MACFFR = tmpreg;
@@ -1010,51 +998,37 @@ static void init_mac_and_dma(ETH_HandleTypeDef *heth)
   (heth->Instance)->MACHTHR = 0;
   (heth->Instance)->MACHTLR = 0;
 
-
+  /* Disable zero-quanta pause */
   tmpreg = (heth->Instance)->MACFCR;
   tmpreg &= ETH_MACFCR_CLEAR_MASK;
-  tmpreg |= (ETH_ZEROQUANTAPAUSE_DISABLE);
+  tmpreg |= ETH_MACFCR_ZQPD;
   (heth->Instance)->MACFCR = (uint32_t) tmpreg;
-
-  /* Errata 2.16.5 (see top) */
   tmpreg = (heth->Instance)->MACFCR;
   HAL_Delay(ETH_REG_WRITE_DELAY);
   (heth->Instance)->MACFCR = tmpreg;
 
-
   (heth->Instance)->MACVLANTR = 0;
-
-  /* Errata 2.16.5 (see top) */
   tmpreg = (heth->Instance)->MACVLANTR;
   HAL_Delay(ETH_REG_WRITE_DELAY);
   (heth->Instance)->MACVLANTR = tmpreg;
 
-
+  /* Enable RX and TX store forward, second frame operate */
   tmpreg = (heth->Instance)->DMAOMR;
   tmpreg &= ETH_DMAOMR_CLEAR_MASK;
-  tmpreg |= (ETH_RECEIVESTOREFORWARD_ENABLE | ETH_TRANSMITSTOREFORWARD_ENABLE | ETH_SECONDFRAMEOPERARTE_ENABLE);
+  tmpreg |= ETH_DMAOMR_RSF | ETH_DMAOMR_TSF | ETH_DMAOMR_OSF;
   (heth->Instance)->DMAOMR = (uint32_t) tmpreg;
-
-  /* Errata 2.16.5 (see top) */
   tmpreg = (heth->Instance)->DMAOMR;
   HAL_Delay(ETH_REG_WRITE_DELAY);
   (heth->Instance)->DMAOMR = tmpreg;
 
-
-  (heth->Instance)->DMABMR = (ETH_ADDRESSALIGNEDBEATS_ENABLE | ETH_FIXEDBURST_ENABLE | ETH_RXDMABURSTLENGTH_32BEAT | ETH_TXDMABURSTLENGTH_32BEAT | ETH_DMAENHANCEDDESCRIPTOR_ENABLE | ETH_DMABMR_USP);
-
-  /* Errata 2.16.5 (see top) */
+  /* Address aligned beats, fixed burst, RX 32 beat, TX 32 beat,
+   * enhanced descriptor, use separate PBL for RX and TX */
+  heth->Instance->DMABMR = ETH_DMABMR_AAB | ETH_DMABMR_FB | ETH_DMABMR_EDE |
+      ETH_DMABMR_RDP_32Beat | ETH_DMABMR_PBL_32Beat | ETH_DMABMR_USP;
   tmpreg = (heth->Instance)->DMABMR;
   HAL_Delay(ETH_REG_WRITE_DELAY);
   (heth->Instance)->DMABMR = tmpreg;
 
-  if ((heth->Init).RxMode == ETH_RXINTERRUPT_MODE)
-  {
-    /* Enable the Ethernet Rx Interrupt */
-    __HAL_ETH_DMA_ENABLE_IT((heth), ETH_DMA_IT_NIS | ETH_DMA_IT_R);
-  }
-
-  /* Initialize MAC address in ethernet MAC */
   set_mac_addr(heth, ETH_MAC_ADDRESS0, heth->Init.MACAddr);
 }
 
@@ -1072,4 +1046,22 @@ static void set_mac_addr(ETH_HandleTypeDef *heth, uint32_t macAddr, uint8_t *add
   tmpreg = ((uint32_t) addr[3] << 24) | ((uint32_t) addr[2] << 16) |
       ((uint32_t) addr[1] << 8) | addr[0];
   (*(__IO uint32_t*)((uint32_t)(ETH_MAC_ADDR_LBASE + macAddr))) = tmpreg;
+}
+
+static void reconfigure_mac(ETH_HandleTypeDef *heth)
+{
+  uint32_t tmpreg = 0;
+
+  assert_param(IS_ETH_SPEED(heth->Init.Speed));
+  assert_param(IS_ETH_DUPLEX_MODE(heth->Init.DuplexMode));
+
+  tmpreg = (heth->Instance)->MACCR;
+  tmpreg &= ~((uint32_t) 0x00004800); /* Clear FES and DM bits */
+  tmpreg |= (uint32_t) (heth->Init.Speed | heth->Init.DuplexMode);
+  (heth->Instance)->MACCR = (uint32_t) tmpreg;
+
+  /* Errata 2.16.5 (see top) */
+  tmpreg = (heth->Instance)->MACCR;
+  HAL_Delay(ETH_REG_WRITE_DELAY);
+  (heth->Instance)->MACCR = tmpreg;
 }
