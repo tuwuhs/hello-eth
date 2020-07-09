@@ -10,14 +10,6 @@
 
 static void ETH_MACDMAConfig(ETH_HandleTypeDef *heth, uint32_t err);
 static void ETH_MACAddressConfig(ETH_HandleTypeDef *heth, uint32_t MacAddr, uint8_t *Addr);
-static void ETH_MACReceptionEnable(ETH_HandleTypeDef *heth);
-static void ETH_MACReceptionDisable(ETH_HandleTypeDef *heth);
-static void ETH_MACTransmissionEnable(ETH_HandleTypeDef *heth);
-static void ETH_MACTransmissionDisable(ETH_HandleTypeDef *heth);
-static void ETH_DMATransmissionEnable(ETH_HandleTypeDef *heth);
-static void ETH_DMATransmissionDisable(ETH_HandleTypeDef *heth);
-static void ETH_DMAReceptionEnable(ETH_HandleTypeDef *heth);
-static void ETH_DMAReceptionDisable(ETH_HandleTypeDef *heth);
 static void ETH_FlushTransmitFIFO(ETH_HandleTypeDef *heth);
 
 HAL_StatusTypeDef HAL_ETH_Init(ETH_HandleTypeDef *heth)
@@ -93,47 +85,37 @@ HAL_StatusTypeDef HAL_ETH_Init(ETH_HandleTypeDef *heth)
   }
   
   /*-------------------------------- MAC Initialization ----------------------*/
-  /* Get the ETHERNET MACMIIAR value */
   tempreg = (heth->Instance)->MACMIIAR;
-  /* Clear CSR Clock Range CR[2:0] bits */
-  tempreg &= ETH_MACMIIAR_CR_MASK;
-  
-  /* Get hclk frequency value */
-  hclk = HAL_RCC_GetHCLKFreq();
-  
+
   /* Set CR bits depending on hclk value */
-  if((hclk >= 20000000)&&(hclk < 35000000))
+  hclk = HAL_RCC_GetHCLKFreq();
+  tempreg &= ~ETH_MACMIIAR_CR_Msk;
+  if (hclk < 35000000)
   {
-    /* CSR Clock Range between 20-35 MHz */
-    tempreg |= (uint32_t)ETH_MACMIIAR_CR_Div16;
+    tempreg |= ETH_MACMIIAR_CR_Div16;
   }
-  else if((hclk >= 35000000)&&(hclk < 60000000))
+  else if (hclk < 60000000)
   {
-    /* CSR Clock Range between 35-60 MHz */ 
-    tempreg |= (uint32_t)ETH_MACMIIAR_CR_Div26;
+    tempreg |= ETH_MACMIIAR_CR_Div26;
   }  
-  else if((hclk >= 60000000)&&(hclk < 100000000))
+  else if (hclk < 100000000)
   {
-    /* CSR Clock Range between 60-100 MHz */ 
-    tempreg |= (uint32_t)ETH_MACMIIAR_CR_Div42;
+    tempreg |= ETH_MACMIIAR_CR_Div42;
   }  
-  else if((hclk >= 100000000)&&(hclk < 150000000))
+  else if (hclk < 150000000)
   {
-    /* CSR Clock Range between 100-150 MHz */ 
-    tempreg |= (uint32_t)ETH_MACMIIAR_CR_Div62;
+    tempreg |= ETH_MACMIIAR_CR_Div62;
   }
-  else /* ((hclk >= 150000000)&&(hclk <= 216000000)) */
+  else
   {
-    /* CSR Clock Range between 150-216 MHz */ 
-    tempreg |= (uint32_t)ETH_MACMIIAR_CR_Div102;    
+    tempreg |= ETH_MACMIIAR_CR_Div102;
   }
   
-  /* Write to ETHERNET MAC MIIAR: Configure the ETHERNET CSR Clock Range */
   (heth->Instance)->MACMIIAR = (uint32_t)tempreg;
   
   /*-------------------- PHY initialization and configuration ----------------*/
   /* Put the PHY in reset mode */
-  if((HAL_ETH_WritePHYRegister(heth, PHY_BCR, PHY_RESET)) != HAL_OK)
+  if ((HAL_ETH_WritePHYRegister(heth, PHY_BCR, PHY_RESET)) != HAL_OK)
   {
     /* In case of write timeout */
     err = ETH_ERROR;
@@ -363,30 +345,40 @@ HAL_StatusTypeDef HAL_ETH_WritePHYRegister(ETH_HandleTypeDef *heth, uint16_t PHY
 
 HAL_StatusTypeDef HAL_ETH_Start(ETH_HandleTypeDef *heth)
 {  
+  uint32_t tmpreg = 0;
+
   /* Process Locked */
   __HAL_LOCK(heth);
   
   /* Set the ETH peripheral state to BUSY */
   heth->State = HAL_ETH_STATE_BUSY;
   
-  /* Enable transmit state machine of the MAC for transmission on the MII */
-  ETH_MACTransmissionEnable(heth);
-  
-  /* Enable receive state machine of the MAC for reception from the MII */
-  ETH_MACReceptionEnable(heth);
-  
+  /* Enable the MAC transmission */
+  /* Enable the MAC reception */
+  (heth->Instance)->MACCR |= ETH_MACCR_TE | ETH_MACCR_RE;
+
   /* Flush Transmit FIFO */
   ETH_FlushTransmitFIFO(heth);
   
   /* Start DMA transmission */
-  ETH_DMATransmissionEnable(heth);
-  
   /* Start DMA reception */
-  ETH_DMAReceptionEnable(heth);
+  (heth->Instance)->DMAOMR |= ETH_DMAOMR_ST | ETH_DMAOMR_SR;
   
   /* Set the ETH state to READY*/
   heth->State= HAL_ETH_STATE_READY;
   
+  /* Errata 2.16.5: Successive write operations to the same register might
+   * not be fully taken into account
+   * Workaround: Make several successive write operations without delay, then
+   * read the register when all the operations are complete, and finally
+   * reprogram it after a delay of four TX_CLK/RX_CLK clock cycles.
+   *
+   * Impacted register(s): MACCR
+   */
+  tmpreg = (heth->Instance)->MACCR;
+  HAL_Delay(ETH_REG_WRITE_DELAY);
+  (heth->Instance)->MACCR = tmpreg;
+
   /* Process Unlocked */
   __HAL_UNLOCK(heth);
   
@@ -396,6 +388,8 @@ HAL_StatusTypeDef HAL_ETH_Start(ETH_HandleTypeDef *heth)
 
 HAL_StatusTypeDef HAL_ETH_Stop(ETH_HandleTypeDef *heth)
 {  
+  uint32_t tmpreg = 0;
+
   /* Process Locked */
   __HAL_LOCK(heth);
   
@@ -403,23 +397,32 @@ HAL_StatusTypeDef HAL_ETH_Stop(ETH_HandleTypeDef *heth)
   heth->State = HAL_ETH_STATE_BUSY;
   
   /* Stop DMA transmission */
-  ETH_DMATransmissionDisable(heth);
-  
   /* Stop DMA reception */
-  ETH_DMAReceptionDisable(heth);
-  
-  /* Disable receive state machine of the MAC for reception from the MII */
-  ETH_MACReceptionDisable(heth);
-  
+  (heth->Instance)->DMAOMR &= ~(ETH_DMAOMR_ST | ETH_DMAOMR_SR);
+
   /* Flush Transmit FIFO */
   ETH_FlushTransmitFIFO(heth);
   
   /* Disable transmit state machine of the MAC for transmission on the MII */
-  ETH_MACTransmissionDisable(heth);
+  /* Disable the MAC reception */
+  /* Disable the MAC transmission */
+  (heth->Instance)->MACCR &= ~(ETH_MACCR_TE | ETH_MACCR_RE);
   
   /* Set the ETH state*/
   heth->State = HAL_ETH_STATE_READY;
   
+  /* Errata 2.16.5: Successive write operations to the same register might
+   * not be fully taken into account
+   * Workaround: Make several successive write operations without delay, then
+   * read the register when all the operations are complete, and finally
+   * reprogram it after a delay of four TX_CLK/RX_CLK clock cycles.
+   *
+   * Impacted register(s): MACCR
+   */
+  tmpreg = (heth->Instance)->MACCR;
+  HAL_Delay(ETH_REG_WRITE_DELAY);
+  (heth->Instance)->MACCR = tmpreg;
+
   /* Process Unlocked */
   __HAL_UNLOCK(heth);
   
@@ -945,89 +948,9 @@ static void ETH_MACAddressConfig(ETH_HandleTypeDef *heth, uint32_t MacAddr, uint
   (*(__IO uint32_t *)((uint32_t)(ETH_MAC_ADDR_LBASE + MacAddr))) = tmpreg;
 }
 
-static void ETH_MACTransmissionEnable(ETH_HandleTypeDef *heth)
-{ 
-  __IO uint32_t tmpreg = 0;
-  
-  /* Enable the MAC transmission */
-  (heth->Instance)->MACCR |= ETH_MACCR_TE;
-  
-  /* Wait until the write operation will be taken into account:
-     at least four TX_CLK/RX_CLK clock cycles */
-  tmpreg = (heth->Instance)->MACCR;
-  HAL_Delay(ETH_REG_WRITE_DELAY);
-  (heth->Instance)->MACCR = tmpreg;
-}
-
-static void ETH_MACTransmissionDisable(ETH_HandleTypeDef *heth)
-{ 
-  __IO uint32_t tmpreg = 0;
-  
-  /* Disable the MAC transmission */
-  (heth->Instance)->MACCR &= ~ETH_MACCR_TE;
-  
-  /* Wait until the write operation will be taken into account:
-     at least four TX_CLK/RX_CLK clock cycles */
-  tmpreg = (heth->Instance)->MACCR;
-  HAL_Delay(ETH_REG_WRITE_DELAY);
-  (heth->Instance)->MACCR = tmpreg;
-}
-
-static void ETH_MACReceptionEnable(ETH_HandleTypeDef *heth)
-{ 
-  __IO uint32_t tmpreg = 0;
-  
-  /* Enable the MAC reception */
-  (heth->Instance)->MACCR |= ETH_MACCR_RE;
-  
-  /* Wait until the write operation will be taken into account:
-     at least four TX_CLK/RX_CLK clock cycles */
-  tmpreg = (heth->Instance)->MACCR;
-  HAL_Delay(ETH_REG_WRITE_DELAY);
-  (heth->Instance)->MACCR = tmpreg;
-}
-
-static void ETH_MACReceptionDisable(ETH_HandleTypeDef *heth)
-{ 
-  __IO uint32_t tmpreg = 0;
-  
-  /* Disable the MAC reception */
-  (heth->Instance)->MACCR &= ~ETH_MACCR_RE; 
-  
-  /* Wait until the write operation will be taken into account:
-     at least four TX_CLK/RX_CLK clock cycles */
-  tmpreg = (heth->Instance)->MACCR;
-  HAL_Delay(ETH_REG_WRITE_DELAY);
-  (heth->Instance)->MACCR = tmpreg;
-}
-
-static void ETH_DMATransmissionEnable(ETH_HandleTypeDef *heth)
-{
-  /* Enable the DMA transmission */
-  (heth->Instance)->DMAOMR |= ETH_DMAOMR_ST;  
-}
-
-static void ETH_DMATransmissionDisable(ETH_HandleTypeDef *heth)
-{ 
-  /* Disable the DMA transmission */
-  (heth->Instance)->DMAOMR &= ~ETH_DMAOMR_ST;
-}
-
-static void ETH_DMAReceptionEnable(ETH_HandleTypeDef *heth)
-{  
-  /* Enable the DMA reception */
-  (heth->Instance)->DMAOMR |= ETH_DMAOMR_SR;  
-}
-
-static void ETH_DMAReceptionDisable(ETH_HandleTypeDef *heth)
-{ 
-  /* Disable the DMA reception */
-  (heth->Instance)->DMAOMR &= ~ETH_DMAOMR_SR;
-}
-
 static void ETH_FlushTransmitFIFO(ETH_HandleTypeDef *heth)
 {
-  __IO uint32_t tmpreg = 0;
+  uint32_t tmpreg = 0;
   
   /* Set the Flush Transmit FIFO bit */
   (heth->Instance)->DMAOMR |= ETH_DMAOMR_FTF;
