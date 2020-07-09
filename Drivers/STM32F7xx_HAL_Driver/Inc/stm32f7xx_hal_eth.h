@@ -349,23 +349,6 @@
   */
 
 /** 
-  * @brief  HAL State structures definition  
-  */ 
-typedef enum
-{
-  HAL_ETH_STATE_RESET             = 0x00U,    /*!< Peripheral not yet Initialized or disabled         */
-  HAL_ETH_STATE_READY             = 0x01U,    /*!< Peripheral Initialized and ready for use           */
-  HAL_ETH_STATE_BUSY              = 0x02U,    /*!< an internal process is ongoing                     */
-  HAL_ETH_STATE_BUSY_TX           = 0x12U,    /*!< Data Transmission process is ongoing               */
-  HAL_ETH_STATE_BUSY_RX           = 0x22U,    /*!< Data Reception process is ongoing                  */
-  HAL_ETH_STATE_BUSY_TX_RX        = 0x32U,    /*!< Data Transmission and Reception process is ongoing */
-  HAL_ETH_STATE_BUSY_WR           = 0x42U,    /*!< Write process is ongoing                           */
-  HAL_ETH_STATE_BUSY_RD           = 0x82U,    /*!< Read process is ongoing                            */
-  HAL_ETH_STATE_TIMEOUT           = 0x03U,    /*!< Timeout state                                      */
-  HAL_ETH_STATE_ERROR             = 0x04U     /*!< Reception process is ongoing                       */
-}HAL_ETH_StateTypeDef;
-
-/** 
   * @brief  ETH Init Structure definition  
   */
 
@@ -565,108 +548,16 @@ typedef struct
 
 
 /** 
-  * @brief  ETH DMA Descriptors data structure definition
-  */ 
-
-typedef struct  
-{
-  __IO uint32_t   Status;           /*!< Status */
-  
-  uint32_t   ControlBufferSize;     /*!< Control and Buffer1, Buffer2 lengths */
-  
-  uint32_t   Buffer1Addr;           /*!< Buffer1 address pointer */
-  
-  uint32_t   Buffer2NextDescAddr;   /*!< Buffer2 or next descriptor address pointer */
-  
-  /*!< Enhanced Ethernet DMA PTP Descriptors */
-  uint32_t   ExtendedStatus;        /*!< Extended status for PTP receive descriptor */
-  
-  uint32_t   Reserved1;             /*!< Reserved */
-  
-  uint32_t   TimeStampLow;          /*!< Time Stamp Low value for transmit and receive */
-  
-  uint32_t   TimeStampHigh;         /*!< Time Stamp High value for transmit and receive */
-
-} ETH_DMADescTypeDef;
-
-
-/** 
-  * @brief  Received Frame Informations structure definition
-  */ 
-typedef struct  
-{
-  ETH_DMADescTypeDef *FSRxDesc;          /*!< First Segment Rx Desc */
-  
-  ETH_DMADescTypeDef *LSRxDesc;          /*!< Last Segment Rx Desc */
-  
-  uint32_t  SegCount;                    /*!< Segment count */
-  
-  uint32_t length;                       /*!< Frame length */
-  
-  uint32_t buffer;                       /*!< Frame buffer */
-
-} ETH_DMARxFrameInfos;
-
-
-/** 
   * @brief  ETH Handle Structure definition  
   */
   
-#if (USE_HAL_ETH_REGISTER_CALLBACKS == 1)
-typedef struct __ETH_HandleTypeDef
-#else
 typedef struct
-#endif
 {
   ETH_TypeDef                *Instance;     /*!< Register base address       */
   
   ETH_InitTypeDef            Init;          /*!< Ethernet Init Configuration */
-  
-  uint32_t                   LinkStatus;    /*!< Ethernet link status        */
-  
-  ETH_DMADescTypeDef         *RxDesc;       /*!< Rx descriptor to Get        */
-  
-  ETH_DMADescTypeDef         *TxDesc;       /*!< Tx descriptor to Set        */
-  
-  ETH_DMARxFrameInfos        RxFrameInfos;  /*!< last Rx frame infos         */
-  
-  __IO HAL_ETH_StateTypeDef  State;         /*!< ETH communication state     */
-  
-  HAL_LockTypeDef            Lock;          /*!< ETH Lock                    */
-
-  #if (USE_HAL_ETH_REGISTER_CALLBACKS == 1)
-
-  void    (* TxCpltCallback)     ( struct __ETH_HandleTypeDef * heth);  /*!< ETH Tx Complete Callback   */
-  void    (* RxCpltCallback)     ( struct __ETH_HandleTypeDef * heth);  /*!< ETH Rx  Complete Callback   */
-  void    (* DMAErrorCallback)   ( struct __ETH_HandleTypeDef * heth);  /*!< DMA Error Callback      */
-  void    (* MspInitCallback)    ( struct __ETH_HandleTypeDef * heth);  /*!< ETH Msp Init callback       */
-  void    (* MspDeInitCallback)  ( struct __ETH_HandleTypeDef * heth);  /*!< ETH Msp DeInit callback     */
-
-#endif  /* USE_HAL_ETH_REGISTER_CALLBACKS */
-
 } ETH_HandleTypeDef;
 
-
-#if (USE_HAL_ETH_REGISTER_CALLBACKS == 1)
-/**
-  * @brief  HAL ETH Callback ID enumeration definition
-  */
-typedef enum
-{
-  HAL_ETH_MSPINIT_CB_ID            = 0x00U,    /*!< ETH MspInit callback ID            */
-  HAL_ETH_MSPDEINIT_CB_ID          = 0x01U,    /*!< ETH MspDeInit callback ID          */
-  HAL_ETH_TX_COMPLETE_CB_ID        = 0x02U,    /*!< ETH Tx Complete Callback ID        */
-  HAL_ETH_RX_COMPLETE_CB_ID        = 0x03U,    /*!< ETH Rx Complete Callback ID        */
-  HAL_ETH_DMA_ERROR_CB_ID          = 0x04U,    /*!< ETH DMA Error Callback ID          */
-
-}HAL_ETH_CallbackIDTypeDef;
-
-/**
-  * @brief  HAL ETH Callback pointer definition
-  */
-typedef  void (*pETH_CallbackTypeDef)(ETH_HandleTypeDef * heth); /*!< pointer to an ETH callback function */
-
-#endif /* USE_HAL_ETH_REGISTER_CALLBACKS */
 
  /**
   * @}
@@ -2137,8 +2028,6 @@ HAL_StatusTypeDef HAL_ETH_Init(ETH_HandleTypeDef *heth);
 HAL_StatusTypeDef HAL_ETH_DeInit(ETH_HandleTypeDef *heth);
 void HAL_ETH_MspInit(ETH_HandleTypeDef *heth);
 void HAL_ETH_MspDeInit(ETH_HandleTypeDef *heth);
-HAL_StatusTypeDef HAL_ETH_DMATxDescListInit(ETH_HandleTypeDef *heth, ETH_DMADescTypeDef *DMATxDescTab, uint8_t* TxBuff, uint32_t TxBuffCount);
-HAL_StatusTypeDef HAL_ETH_DMARxDescListInit(ETH_HandleTypeDef *heth, ETH_DMADescTypeDef *DMARxDescTab, uint8_t *RxBuff, uint32_t RxBuffCount);
 /* Callbacks Register/UnRegister functions  ***********************************/
 #if (USE_HAL_ETH_REGISTER_CALLBACKS == 1)
 HAL_StatusTypeDef HAL_ETH_RegisterCallback(ETH_HandleTypeDef *heth, HAL_ETH_CallbackIDTypeDef CallbackID, pETH_CallbackTypeDef pCallback);
@@ -2183,27 +2072,6 @@ HAL_StatusTypeDef HAL_ETH_ConfigDMA(ETH_HandleTypeDef *heth, ETH_DMAInitTypeDef 
   * @}
   */ 
 
-/* Peripheral State functions  ************************************************/
-
-/** @addtogroup ETH_Exported_Functions_Group4
-  * @{
-  */
-HAL_ETH_StateTypeDef HAL_ETH_GetState(ETH_HandleTypeDef *heth);
-/**
-  * @}
-  */
-
-/**
-  * @}
-  */
-
-/**
-  * @}
-  */
-
-/**
-  * @}
-  */
 #endif /* ETH */
 
 #ifdef __cplusplus

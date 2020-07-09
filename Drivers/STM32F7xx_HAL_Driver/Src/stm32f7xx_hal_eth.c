@@ -31,25 +31,8 @@ HAL_StatusTypeDef HAL_ETH_Init(ETH_HandleTypeDef *heth)
   assert_param(IS_ETH_CHECKSUM_MODE(heth->Init.ChecksumMode));
   assert_param(IS_ETH_MEDIA_INTERFACE(heth->Init.MediaInterface));  
   
-  if(heth->State == HAL_ETH_STATE_RESET)
-  {
-    /* Allocate lock resource and initialize it */
-    heth->Lock = HAL_UNLOCKED;
-#if (USE_HAL_ETH_REGISTER_CALLBACKS == 1)
-    ETH_InitCallbacksToDefault(heth);
-
-    if(heth->MspInitCallback == NULL)
-    {
-      /* Init the low level hardware : GPIO, CLOCK, NVIC. */
-      heth->MspInitCallback = HAL_ETH_MspInit;
-    }
-    heth->MspInitCallback(heth);
-
-#else
-    /* Init the low level hardware : GPIO, CLOCK, NVIC. */
-    HAL_ETH_MspInit(heth);
-#endif /* USE_HAL_ETH_REGISTER_CALLBACKS */
-  }
+  /* Init the low level hardware : GPIO, CLOCK, NVIC. */
+  HAL_ETH_MspInit(heth);
   
   /* Enable SYSCFG Clock */
   __HAL_RCC_SYSCFG_CLK_ENABLE();
@@ -72,11 +55,6 @@ HAL_StatusTypeDef HAL_ETH_Init(ETH_HandleTypeDef *heth)
     /* Check for the Timeout */
     if((HAL_GetTick() - tickstart ) > ETH_TIMEOUT_SWRESET)
     {     
-      heth->State= HAL_ETH_STATE_TIMEOUT;
-  
-      /* Process Unlocked */
-      __HAL_UNLOCK(heth);
-    
       /* Note: The SWR is not performed if the ETH_RX_CLK or the ETH_TX_CLK are  
          not available, please check your external PHY or the IO configuration */
                
@@ -122,10 +100,7 @@ HAL_StatusTypeDef HAL_ETH_Init(ETH_HandleTypeDef *heth)
     
     /* Config MAC and DMA */
     ETH_MACDMAConfig(heth, err);
-    
-    /* Set the ETH peripheral state to READY */
-    heth->State = HAL_ETH_STATE_READY;
-    
+
     /* Return HAL_ERROR */
     return HAL_ERROR;
   }
@@ -153,9 +128,6 @@ HAL_StatusTypeDef HAL_ETH_Init(ETH_HandleTypeDef *heth)
       /* Config MAC and DMA */
       ETH_MACDMAConfig(heth, err);
 
-      /* Set the ETH peripheral state to READY */
-      heth->State = HAL_ETH_STATE_READY;
-
       /* Return HAL_ERROR */
       return HAL_ERROR;
     }
@@ -167,36 +139,15 @@ HAL_StatusTypeDef HAL_ETH_Init(ETH_HandleTypeDef *heth)
   /* Config MAC and DMA */
   ETH_MACDMAConfig(heth, err);
   
-  /* Set ETH HAL State to Ready */
-  heth->State= HAL_ETH_STATE_READY;
-  
   /* Return function status */
   return HAL_OK;
 }
 
 HAL_StatusTypeDef HAL_ETH_DeInit(ETH_HandleTypeDef *heth)
 {
-  /* Set the ETH peripheral state to BUSY */
-  heth->State = HAL_ETH_STATE_BUSY;
-  
-#if (USE_HAL_ETH_REGISTER_CALLBACKS == 1)
-  if(heth->MspDeInitCallback == NULL)
-  {
-    heth->MspDeInitCallback = HAL_ETH_MspDeInit;
-  }
-  /* De-Init the low level hardware : GPIO, CLOCK, NVIC. */
-  heth->MspDeInitCallback(heth);
-#else
   /* De-Init the low level hardware : GPIO, CLOCK, NVIC. */
   HAL_ETH_MspDeInit(heth);
-#endif
   
-  /* Set ETH HAL state to Disabled */
-  heth->State= HAL_ETH_STATE_RESET;
-
-  /* Release Lock */
-  __HAL_UNLOCK(heth);
-
   /* Return function status */
   return HAL_OK;
 }
@@ -229,13 +180,11 @@ HAL_StatusTypeDef HAL_ETH_ReadPHYRegister(ETH_HandleTypeDef *heth, uint16_t PHYR
   /* Check parameters */
   assert_param(IS_ETH_PHY_ADDRESS(heth->Init.PhyAddress));
   
-  /* Check the ETH peripheral state */
-  if(heth->State == HAL_ETH_STATE_BUSY_RD)
-  {
-    return HAL_BUSY;
-  }
-  /* Set ETH HAL State to BUSY_RD */
-  heth->State = HAL_ETH_STATE_BUSY_RD;
+//  /* Check the ETH peripheral state */
+//  if(heth->State == HAL_ETH_STATE_BUSY_RD)
+//  {
+//    return HAL_BUSY;
+//  }
   
   /* Get the ETHERNET MACMIIAR value */
   tmpreg = heth->Instance->MACMIIAR;
@@ -261,11 +210,6 @@ HAL_StatusTypeDef HAL_ETH_ReadPHYRegister(ETH_HandleTypeDef *heth, uint16_t PHYR
     /* Check for the Timeout */
     if((HAL_GetTick() - tickstart ) > PHY_READ_TO)
     {
-      heth->State= HAL_ETH_STATE_READY;
-  
-      /* Process Unlocked */
-      __HAL_UNLOCK(heth);
-    
       return HAL_TIMEOUT;
     }
     
@@ -274,9 +218,6 @@ HAL_StatusTypeDef HAL_ETH_ReadPHYRegister(ETH_HandleTypeDef *heth, uint16_t PHYR
   
   /* Get MACMIIDR value */
   *RegValue = (uint16_t)(heth->Instance->MACMIIDR);
-  
-  /* Set ETH HAL State to READY */
-  heth->State = HAL_ETH_STATE_READY;
   
   /* Return function status */
   return HAL_OK;
@@ -290,13 +231,11 @@ HAL_StatusTypeDef HAL_ETH_WritePHYRegister(ETH_HandleTypeDef *heth, uint16_t PHY
   /* Check parameters */
   assert_param(IS_ETH_PHY_ADDRESS(heth->Init.PhyAddress));
   
-  /* Check the ETH peripheral state */
-  if(heth->State == HAL_ETH_STATE_BUSY_WR)
-  {
-    return HAL_BUSY;
-  }
-  /* Set ETH HAL State to BUSY_WR */
-  heth->State = HAL_ETH_STATE_BUSY_WR;
+//  /* Check the ETH peripheral state */
+//  if(heth->State == HAL_ETH_STATE_BUSY_WR)
+//  {
+//    return HAL_BUSY;
+//  }
   
   /* Get the ETHERNET MACMIIAR value */
   tmpreg = heth->Instance->MACMIIAR;
@@ -325,19 +264,11 @@ HAL_StatusTypeDef HAL_ETH_WritePHYRegister(ETH_HandleTypeDef *heth, uint16_t PHY
     /* Check for the Timeout */
     if((HAL_GetTick() - tickstart ) > PHY_WRITE_TO)
     {
-      heth->State= HAL_ETH_STATE_READY;
-  
-      /* Process Unlocked */
-      __HAL_UNLOCK(heth);
-    
       return HAL_TIMEOUT;
     }
     
     tmpreg = heth->Instance->MACMIIAR;
   }
-  
-  /* Set ETH HAL State to READY */
-  heth->State = HAL_ETH_STATE_READY;
   
   /* Return function status */
   return HAL_OK; 
@@ -347,26 +278,10 @@ HAL_StatusTypeDef HAL_ETH_Start(ETH_HandleTypeDef *heth)
 {  
   uint32_t tmpreg = 0;
 
-  /* Process Locked */
-  __HAL_LOCK(heth);
-  
-  /* Set the ETH peripheral state to BUSY */
-  heth->State = HAL_ETH_STATE_BUSY;
-  
   /* Enable the MAC transmission */
   /* Enable the MAC reception */
   (heth->Instance)->MACCR |= ETH_MACCR_TE | ETH_MACCR_RE;
 
-  /* Flush Transmit FIFO */
-  ETH_FlushTransmitFIFO(heth);
-  
-  /* Start DMA transmission */
-  /* Start DMA reception */
-  (heth->Instance)->DMAOMR |= ETH_DMAOMR_ST | ETH_DMAOMR_SR;
-  
-  /* Set the ETH state to READY*/
-  heth->State= HAL_ETH_STATE_READY;
-  
   /* Errata 2.16.5: Successive write operations to the same register might
    * not be fully taken into account
    * Workaround: Make several successive write operations without delay, then
@@ -379,9 +294,13 @@ HAL_StatusTypeDef HAL_ETH_Start(ETH_HandleTypeDef *heth)
   HAL_Delay(ETH_REG_WRITE_DELAY);
   (heth->Instance)->MACCR = tmpreg;
 
-  /* Process Unlocked */
-  __HAL_UNLOCK(heth);
-  
+  /* Flush Transmit FIFO */
+  ETH_FlushTransmitFIFO(heth);
+
+  /* Start DMA transmission */
+  /* Start DMA reception */
+  (heth->Instance)->DMAOMR |= ETH_DMAOMR_ST | ETH_DMAOMR_SR;
+
   /* Return function status */
   return HAL_OK;
 }
@@ -390,12 +309,6 @@ HAL_StatusTypeDef HAL_ETH_Stop(ETH_HandleTypeDef *heth)
 {  
   uint32_t tmpreg = 0;
 
-  /* Process Locked */
-  __HAL_LOCK(heth);
-  
-  /* Set the ETH peripheral state to BUSY */
-  heth->State = HAL_ETH_STATE_BUSY;
-  
   /* Stop DMA transmission */
   /* Stop DMA reception */
   (heth->Instance)->DMAOMR &= ~(ETH_DMAOMR_ST | ETH_DMAOMR_SR);
@@ -408,9 +321,6 @@ HAL_StatusTypeDef HAL_ETH_Stop(ETH_HandleTypeDef *heth)
   /* Disable the MAC transmission */
   (heth->Instance)->MACCR &= ~(ETH_MACCR_TE | ETH_MACCR_RE);
   
-  /* Set the ETH state*/
-  heth->State = HAL_ETH_STATE_READY;
-  
   /* Errata 2.16.5: Successive write operations to the same register might
    * not be fully taken into account
    * Workaround: Make several successive write operations without delay, then
@@ -423,9 +333,6 @@ HAL_StatusTypeDef HAL_ETH_Stop(ETH_HandleTypeDef *heth)
   HAL_Delay(ETH_REG_WRITE_DELAY);
   (heth->Instance)->MACCR = tmpreg;
 
-  /* Process Unlocked */
-  __HAL_UNLOCK(heth);
-  
   /* Return function status */
   return HAL_OK;
 }
@@ -433,12 +340,6 @@ HAL_StatusTypeDef HAL_ETH_Stop(ETH_HandleTypeDef *heth)
 HAL_StatusTypeDef HAL_ETH_ConfigMAC(ETH_HandleTypeDef *heth, ETH_MACInitTypeDef *macconf)
 {
   uint32_t tmpreg = 0;
-  
-  /* Process Locked */
-  __HAL_LOCK(heth);
-  
-  /* Set the ETH peripheral state to BUSY */
-  heth->State= HAL_ETH_STATE_BUSY;
   
   assert_param(IS_ETH_SPEED(heth->Init.Speed));
   assert_param(IS_ETH_DUPLEX_MODE(heth->Init.DuplexMode)); 
@@ -580,12 +481,6 @@ HAL_StatusTypeDef HAL_ETH_ConfigMAC(ETH_HandleTypeDef *heth, ETH_MACInitTypeDef 
     (heth->Instance)->MACCR = tmpreg;
   }
   
-  /* Set the ETH state to Ready */
-  heth->State= HAL_ETH_STATE_READY;
-  
-  /* Process Unlocked */
-  __HAL_UNLOCK(heth);
-  
   /* Return function status */
   return HAL_OK;  
 }
@@ -593,12 +488,6 @@ HAL_StatusTypeDef HAL_ETH_ConfigMAC(ETH_HandleTypeDef *heth, ETH_MACInitTypeDef 
 HAL_StatusTypeDef HAL_ETH_ConfigDMA(ETH_HandleTypeDef *heth, ETH_DMAInitTypeDef *dmaconf)
 {
   uint32_t tmpreg = 0;
-
-  /* Process Locked */
-  __HAL_LOCK(heth);
-  
-  /* Set the ETH peripheral state to BUSY */
-  heth->State= HAL_ETH_STATE_BUSY;
 
   /* Check parameters */
   assert_param(IS_ETH_DROP_TCPIP_CHECKSUM_FRAME(dmaconf->DropTCPIPChecksumErrorFrame));
@@ -659,20 +548,8 @@ HAL_StatusTypeDef HAL_ETH_ConfigDMA(ETH_HandleTypeDef *heth, ETH_DMAInitTypeDef 
    HAL_Delay(ETH_REG_WRITE_DELAY);
    (heth->Instance)->DMABMR = tmpreg;
 
-   /* Set the ETH state to Ready */
-   heth->State= HAL_ETH_STATE_READY;
-   
-   /* Process Unlocked */
-   __HAL_UNLOCK(heth);
-   
    /* Return function status */
    return HAL_OK; 
-}
-
-HAL_ETH_StateTypeDef HAL_ETH_GetState(ETH_HandleTypeDef *heth)
-{  
-  /* Return ETH state */
-  return heth->State;
 }
 
 static void ETH_MACDMAConfig(ETH_HandleTypeDef *heth, uint32_t err)
